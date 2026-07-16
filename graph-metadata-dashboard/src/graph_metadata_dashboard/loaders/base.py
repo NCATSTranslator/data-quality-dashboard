@@ -8,18 +8,14 @@ JsonObject = dict[str, Any]
 
 class MetadataSource(Protocol):
     @property
-    def source_key(self) -> str:
-        raise NotImplementedError
+    def source_key(self) -> str: ...
 
     @property
-    def label(self) -> str:
-        raise NotImplementedError
+    def label(self) -> str: ...
 
-    def load_graph_metadata(self) -> JsonObject:
-        raise NotImplementedError
+    def load_graph_metadata(self) -> JsonObject: ...
 
-    def load_schema(self, schema_reference: str | None = None) -> JsonObject | None:
-        raise NotImplementedError
+    def load_schema(self, schema_reference: str | None = None) -> JsonObject | None: ...
 
 
 def ensure_json_object(value: Any, *, context: str) -> JsonObject:

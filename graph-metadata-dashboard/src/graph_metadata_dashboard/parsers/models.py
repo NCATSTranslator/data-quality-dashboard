@@ -62,11 +62,11 @@ class GraphSchema:
 
     @property
     def total_node_count(self) -> int | None:
-        return _int_or_none(self.nodes_summary.get("total_count"))
+        return int_or_none(self.nodes_summary.get("total_count", None))
 
     @property
     def total_edge_count(self) -> int | None:
-        return _int_or_none(self.edges_summary.get("total_count"))
+        return int_or_none(self.edges_summary.get("total_count", None))
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,7 @@ class ParsedGraphMetadata:
         return sum(values) if values else None
 
 
-def _int_or_none(value: Any) -> int | None:
+def int_or_none(value: Any) -> int | None:
     if value is None:
         return None
     try:

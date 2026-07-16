@@ -56,14 +56,12 @@ class KgxStorageClient:
         return KgxRelease(source_id=source_id, release_version=release_version, data_url=data_url)
 
     def load_release_graph_metadata(self, release: KgxRelease) -> JsonObject:
-        return self._get_json(urljoin(f"{release.data_url}/", "graph-metadata.json"))
+        return self._get_json(urljoin(f"{release.data_url}", "graph-metadata.json"))
 
-    def load_release_schema(
-        self,
-        release: KgxRelease,
+    def load_release_schema(self, release: KgxRelease,
         schema_reference: str | None = None,
     ) -> JsonObject | None:
-        schema_url = schema_reference or urljoin(f"{release.data_url}/", "schema.json")
+        schema_url = schema_reference or urljoin(f"{release.data_url}", "schema.json")
         try:
             return self._get_json(schema_url)
         except requests.HTTPError as error:
@@ -81,7 +79,7 @@ class KgxStorageClient:
     def _validate_fetch_url(url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            msg = f"Refusing to fetch invalid metadata URL: {url}"
+            msg = f"invalid metadata URL: {url}"
             raise ValueError(msg)
 
 

@@ -12,7 +12,7 @@ from graph_metadata_dashboard.loaders.base import JsonObject, MetadataSource, en
 class UploadedMetadata(MetadataSource):
     graph_metadata: JsonObject
     schema: JsonObject | None = None
-    filename: str = "uploaded graph-metadata.json"
+    filename: str = "uploaded-graph-metadata.json"
 
     @property
     def source_key(self) -> str:
@@ -26,7 +26,7 @@ class UploadedMetadata(MetadataSource):
         return self.graph_metadata
 
     def load_schema(self, schema_reference: str | None = None) -> JsonObject | None:
-        del schema_reference
+        del schema_reference  # silence linter warning of unused variable
         return self.schema
 
 

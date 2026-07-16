@@ -22,12 +22,7 @@ class DiskMetadataCache(MetadataCache):
             logger.exception("Failed to read metadata cache key %s", key)
             return None
 
-    def set(
-        self,
-        session_id: str,
-        key: str,
-        value: Any,
-        *,
+    def set(self, session_id: str, key: str, value: Any, *,
         ttl_seconds: int | None = None,
     ) -> None:
         expire = ttl_seconds if ttl_seconds is not None else self._default_ttl_seconds

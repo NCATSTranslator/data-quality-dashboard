@@ -14,15 +14,10 @@ class InMemoryMetadataCache(MetadataCache):
     def get(self, session_id: str, key: str) -> Any | None:
         return self._values.get(self._namespace(session_id, key))
 
-    def set(
-        self,
-        session_id: str,
-        key: str,
-        value: Any,
-        *,
+    def set(self, session_id: str, key: str, value: Any, *,
         ttl_seconds: int | None = None,
     ) -> None:
-        del ttl_seconds
+        del ttl_seconds  # silence linter warning of unused variable
         self._values[self._namespace(session_id, key)] = value
 
     def delete(self, session_id: str, key: str) -> None:

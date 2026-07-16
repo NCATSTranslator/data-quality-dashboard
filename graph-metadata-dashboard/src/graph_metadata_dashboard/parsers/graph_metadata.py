@@ -14,12 +14,11 @@ from graph_metadata_dashboard.parsers.models import (
     ParsedGraphMetadata,
     SchemaReference,
     SubgraphSource,
+    int_or_none
 )
 
 
-def parse_graph_metadata(
-    data: Mapping[str, Any],
-    *,
+def parse_graph_metadata(data: Mapping[str, Any], *,
     schema_data: Mapping[str, Any] | None = None,
 ) -> ParsedGraphMetadata:
     raw = dict(data)
@@ -40,7 +39,7 @@ def parse_graph_metadata(
         ),
         date_created=str(raw.get("dateCreated", "")),
         date_modified=str(raw.get("dateModified", "")),
-        license=_string_or_empty(raw.get("license")),
+        license=_string_or_empty(raw.get("license", None)),
         biolink_version=_call_or_default(
             kgx_metadata, "get_biolink_version", raw.get("biolinkVersion", "")
         ),
@@ -54,7 +53,7 @@ def parse_graph_metadata(
         subgraphs=tuple(_parse_subgraph(entry) for entry in _list(raw.get("hasPart"))),
         schema_reference=schema_reference,
         schema=schema,
-        schema_version_marker=_string_or_empty(raw.get("biolinkVersion")),
+        schema_version_marker=_string_or_empty(raw.get("biolinkVersion", None)),
         raw=raw,
     )
 
@@ -100,26 +99,26 @@ def _parse_knowledge_source(entry: Mapping[str, Any]) -> KnowledgeSource:
     citation = entry.get("citation")
     citations = [str(item) for item in citation] if isinstance(citation, list) else []
     return KnowledgeSource(
-        id=_string_or_empty(entry.get("id") or entry.get("@id")),
-        name=_string_or_empty(entry.get("name")),
-        description=_string_or_empty(entry.get("description")),
-        license=_string_or_empty(entry.get("license")),
-        attribution=_string_or_empty(entry.get("attribution")),
+        id=_string_or_empty(entry.get("id", None) or entry.get("@id", None)),
+        name=_string_or_empty(entry.get("name", None)),
+        description=_string_or_empty(entry.get("description", None)),
+        license=_string_or_empty(entry.get("license", None)),
+        attribution=_string_or_empty(entry.get("attribution", None)),
         citation=citations,
-        version=_string_or_empty(entry.get("version")),
+        version=_string_or_empty(entry.get("version", None)),
     )
 
 
 def _parse_subgraph(entry: Mapping[str, Any]) -> SubgraphSource:
     kgx_source = KGXKnowledgeGraphSource.from_dict(dict(entry))
     return SubgraphSource(
-        id=_string_or_empty(_attr_or_default(kgx_source, "id", entry.get("@id", ""))),
-        name=_string_or_empty(_attr_or_default(kgx_source, "name", entry.get("name", ""))),
-        node_count=_int_or_none(
-            _attr_or_default(kgx_source, "node_count", entry.get("orion:nodeCount"))
+        id=_string_or_empty(getattr(kgx_source, "id", entry.get("@id", ""))),
+        name=_string_or_empty(getattr(kgx_source, "name", entry.get("name", ""))),
+        node_count=int_or_none(
+            getattr(kgx_source, "node_count", entry.get("orion:nodeCount"))
         ),
-        edge_count=_int_or_none(
-            _attr_or_default(kgx_source, "edge_count", entry.get("orion:edgeCount"))
+        edge_count=int_or_none(
+            getattr(kgx_source, "edge_count", entry.get("orion:edgeCount"))
         ),
     )
 
@@ -129,10 +128,10 @@ def _parse_node_category(entry: Mapping[str, Any]) -> NodeCategory:
     if isinstance(category_value, list):
         category = ", ".join(str(item) for item in category_value)
     else:
-        category = _string_or_empty(category_value) or "Unknown"
+        category = _string_or_empty(category_value)
     return NodeCategory(
         category=category,
-        count=_int_or_none(entry.get("count")) or 0,
+        count=int_or_none(entry.get("count")) or 0,
         id_prefixes=_int_dict(entry.get("id_prefixes")),
         attributes=_int_dict(entry.get("attributes")),
     )
@@ -143,7 +142,7 @@ def _parse_edge_triple(entry: Mapping[str, Any]) -> EdgeTriple:
         subject_category=tuple(_safe_iter_strings(entry.get("subject_category"))),
         predicate=_string_or_empty(entry.get("predicate")) or "unknown",
         object_category=tuple(_safe_iter_strings(entry.get("object_category"))),
-        count=_int_or_none(entry.get("count")) or 0,
+        count=int_or_none(entry.get("count")) or 0,
         primary_knowledge_sources=_int_dict(entry.get("primary_knowledge_sources")),
         qualifiers=_int_dict(entry.get("qualifiers")),
         attributes=_int_dict(entry.get("attributes")),
@@ -161,10 +160,6 @@ def _call_or_default(obj: Any, method_name: str, default: Any) -> str | list[str
     except Exception:
         return default
     return default if value is None or value == "" else value
-
-
-def _attr_or_default(obj: Any, attr_name: str, default: Any) -> Any:
-    return getattr(obj, attr_name, default)
 
 
 def _list(value: Any) -> list[Mapping[str, Any]]:
@@ -189,19 +184,10 @@ def _int_dict(value: Any) -> dict[str, int]:
     output: dict[str, int] = {}
     for key, count in value.items():
         safe_key = "Unknown" if key is None else str(key)
-        parsed = _int_or_none(count)
+        parsed = int_or_none(count)
         if parsed is not None:
             output[safe_key] = parsed
     return output
-
-
-def _int_or_none(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _string_or_empty(value: Any) -> str:
