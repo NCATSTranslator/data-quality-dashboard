@@ -1,0 +1,452 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "biolink": "https://w3id.org/biolink/",
+    "orion": "https://github.com/RobokopU24/ORION"
+  },
+  "@id": "https://kgx-storage.ci.transltr.io/releases/alliance/2026_06_09/",
+  "@type": "Dataset",
+  "name": "alliance",
+  "description": "A knowledge graph built for the NCATS Biomedical Data Translator project using Translator-Ingests, Biolink Model, and Node Normalizer.",
+  "license": "MIT",
+  "url": "https://kgx-storage.ci.transltr.io/releases/alliance/2026_06_09/",
+  "version": "alliance_9.0.0_78d4b40c_2025sep1_2.4.1_1.4.0_conflated_strict_2.0.0_4.4.2",
+  "dateCreated": "2026_06_08",
+  "dateModified": "",
+  "keywords": [],
+  "creator": [],
+  "contactPoint": [],
+  "funder": [],
+  "conformsTo": [],
+  "schema": {
+    "nodes": [
+      {
+        "category": [
+          "biolink:PhenotypicFeature"
+        ],
+        "count": 29,
+        "id_prefixes": {
+          "HP": 15,
+          "EFO": 14
+        },
+        "attributes": {
+          "name": 29,
+          "equivalent_identifiers": 29,
+          "information_content": 29,
+          "description": 29
+        }
+      },
+      {
+        "category": [
+          "biolink:Disease"
+        ],
+        "count": 4,
+        "id_prefixes": {
+          "MONDO": 3,
+          "EFO": 1
+        },
+        "attributes": {
+          "name": 4,
+          "equivalent_identifiers": 4,
+          "information_content": 4,
+          "description": 4
+        }
+      },
+      {
+        "category": [
+          "biolink:CellularComponent"
+        ],
+        "count": 565,
+        "id_prefixes": {
+          "GO": 565
+        },
+        "attributes": {
+          "name": 565,
+          "equivalent_identifiers": 565,
+          "information_content": 565,
+          "description": 565
+        }
+      },
+      {
+        "category": [
+          "biolink:Gene"
+        ],
+        "count": 669,
+        "id_prefixes": {
+          "NCBIGene": 567,
+          "MGI": 101,
+          "RGD": 1
+        },
+        "attributes": {
+          "name": 669,
+          "equivalent_identifiers": 669,
+          "description": 567,
+          "information_content": 86
+        }
+      },
+      {
+        "category": [
+          "biolink:Gene",
+          "biolink:Protein"
+        ],
+        "count": 14247,
+        "id_prefixes": {
+          "NCBIGene": 14247
+        },
+        "attributes": {
+          "name": 14247,
+          "equivalent_identifiers": 14247,
+          "description": 14247,
+          "information_content": 13260
+        }
+      },
+      {
+        "category": [
+          "biolink:AnatomicalEntity"
+        ],
+        "count": 669,
+        "id_prefixes": {
+          "UBERON": 669
+        },
+        "attributes": {
+          "name": 669,
+          "equivalent_identifiers": 669,
+          "information_content": 669,
+          "description": 583
+        }
+      }
+    ],
+    "nodes_summary": {
+      "total_count": 16183,
+      "id_prefixes": {
+        "NCBIGene": 14814,
+        "UBERON": 669,
+        "GO": 565,
+        "MGI": 101,
+        "EFO": 15,
+        "HP": 15,
+        "MONDO": 3,
+        "RGD": 1
+      },
+      "attributes": {
+        "name": 16183,
+        "equivalent_identifiers": 16183,
+        "description": 15995,
+        "information_content": 14613
+      }
+    },
+    "edges": [
+      {
+        "subject_category": [
+          "biolink:Gene",
+          "biolink:Protein"
+        ],
+        "predicate": "biolink:expressed_in",
+        "object_category": [
+          "biolink:AnatomicalEntity"
+        ],
+        "count": 118545,
+        "primary_knowledge_sources": {
+          "infores:mgi": 118545
+        },
+        "qualifiers": {
+          "qualifier": 118545,
+          "stage_qualifier": 118545
+        },
+        "attributes": {
+          "id": 118545,
+          "category": 118545,
+          "publications": 118545,
+          "knowledge_level": 118545,
+          "agent_type": 118545,
+          "original_subject": 118545,
+          "original_object": 118545
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 118545
+        },
+        "object_id_prefixes": {
+          "UBERON": 118545
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene",
+          "biolink:Protein"
+        ],
+        "predicate": "biolink:expressed_in",
+        "object_category": [
+          "biolink:CellularComponent"
+        ],
+        "count": 6450,
+        "primary_knowledge_sources": {
+          "infores:rgd": 6450
+        },
+        "qualifiers": {
+          "qualifier": 6450
+        },
+        "attributes": {
+          "id": 6450,
+          "category": 6450,
+          "publications": 6450,
+          "knowledge_level": 6450,
+          "agent_type": 6450,
+          "original_subject": 6450,
+          "original_object": 6450
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 6450
+        },
+        "object_id_prefixes": {
+          "GO": 6450
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene",
+          "biolink:Protein"
+        ],
+        "predicate": "biolink:has_phenotype",
+        "object_category": [
+          "biolink:PhenotypicFeature"
+        ],
+        "count": 2579,
+        "primary_knowledge_sources": {
+          "infores:mgi": 2547,
+          "infores:rgd": 32
+        },
+        "qualifiers": {},
+        "attributes": {
+          "id": 2579,
+          "category": 2579,
+          "publications": 2579,
+          "knowledge_level": 2579,
+          "agent_type": 2579,
+          "original_subject": 2579,
+          "original_object": 2579
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 2579
+        },
+        "object_id_prefixes": {
+          "EFO": 1539,
+          "HP": 1040
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene"
+        ],
+        "predicate": "biolink:expressed_in",
+        "object_category": [
+          "biolink:AnatomicalEntity"
+        ],
+        "count": 2736,
+        "primary_knowledge_sources": {
+          "infores:mgi": 2736
+        },
+        "qualifiers": {
+          "qualifier": 2736,
+          "stage_qualifier": 2736
+        },
+        "attributes": {
+          "id": 2736,
+          "category": 2736,
+          "publications": 2736,
+          "knowledge_level": 2736,
+          "agent_type": 2736,
+          "original_subject": 2736,
+          "original_object": 2736
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 2525,
+          "MGI": 211
+        },
+        "object_id_prefixes": {
+          "UBERON": 2736
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene"
+        ],
+        "predicate": "biolink:expressed_in",
+        "object_category": [
+          "biolink:CellularComponent"
+        ],
+        "count": 97,
+        "primary_knowledge_sources": {
+          "infores:rgd": 97
+        },
+        "qualifiers": {
+          "qualifier": 97
+        },
+        "attributes": {
+          "id": 97,
+          "category": 97,
+          "publications": 97,
+          "knowledge_level": 97,
+          "agent_type": 97,
+          "original_subject": 97,
+          "original_object": 97
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 96,
+          "RGD": 1
+        },
+        "object_id_prefixes": {
+          "GO": 97
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene",
+          "biolink:Protein"
+        ],
+        "predicate": "biolink:has_phenotype",
+        "object_category": [
+          "biolink:Disease"
+        ],
+        "count": 44,
+        "primary_knowledge_sources": {
+          "infores:mgi": 42,
+          "infores:rgd": 2
+        },
+        "qualifiers": {},
+        "attributes": {
+          "id": 44,
+          "category": 44,
+          "publications": 44,
+          "knowledge_level": 44,
+          "agent_type": 44,
+          "original_subject": 44,
+          "original_object": 44
+        },
+        "subject_id_prefixes": {
+          "NCBIGene": 44
+        },
+        "object_id_prefixes": {
+          "MONDO": 43,
+          "EFO": 1
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene"
+        ],
+        "predicate": "biolink:has_phenotype",
+        "object_category": [
+          "biolink:PhenotypicFeature"
+        ],
+        "count": 90,
+        "primary_knowledge_sources": {
+          "infores:mgi": 88,
+          "infores:rgd": 2
+        },
+        "qualifiers": {},
+        "attributes": {
+          "id": 90,
+          "category": 90,
+          "publications": 90,
+          "knowledge_level": 90,
+          "agent_type": 90,
+          "original_subject": 90,
+          "original_object": 90
+        },
+        "subject_id_prefixes": {
+          "MGI": 52,
+          "NCBIGene": 38
+        },
+        "object_id_prefixes": {
+          "EFO": 48,
+          "HP": 42
+        }
+      },
+      {
+        "subject_category": [
+          "biolink:Gene"
+        ],
+        "predicate": "biolink:has_phenotype",
+        "object_category": [
+          "biolink:Disease"
+        ],
+        "count": 4,
+        "primary_knowledge_sources": {
+          "infores:mgi": 4
+        },
+        "qualifiers": {},
+        "attributes": {
+          "id": 4,
+          "category": 4,
+          "publications": 4,
+          "knowledge_level": 4,
+          "agent_type": 4,
+          "original_subject": 4,
+          "original_object": 4
+        },
+        "subject_id_prefixes": {
+          "MGI": 4
+        },
+        "object_id_prefixes": {
+          "MONDO": 4
+        }
+      }
+    ],
+    "edges_summary": {
+      "total_count": 130545,
+      "predicates": {
+        "biolink:expressed_in": 127828,
+        "biolink:has_phenotype": 2717
+      },
+      "primary_knowledge_sources": {
+        "infores:mgi": 123962,
+        "infores:rgd": 6583
+      },
+      "predicates_by_knowledge_source": {
+        "infores:mgi": {
+          "biolink:expressed_in": 121281,
+          "biolink:has_phenotype": 2681
+        },
+        "infores:rgd": {
+          "biolink:expressed_in": 6547,
+          "biolink:has_phenotype": 36
+        }
+      },
+      "qualifiers": {
+        "qualifier": 127828,
+        "stage_qualifier": 121281
+      },
+      "attributes": {
+        "id": 130545,
+        "category": 130545,
+        "publications": 130545,
+        "knowledge_level": 130545,
+        "agent_type": 130545,
+        "original_subject": 130545,
+        "original_object": 130545
+      }
+    }
+  },
+  "biolinkVersion": "4.4.2",
+  "babelVersion": "2025sep1",
+  "distribution": [],
+  "hasPart": [],
+  "isBasedOn": [
+    {
+      "@type": "Dataset",
+      "identifier": "alliance",
+      "name": "Alliance of Genome Resources (AGR) Reference Ingest Guide",
+      "description": "The Alliance of Genome Resources (AGR) is a consortium of model organism databases and the Gene Ontology Consortium that provides a unified view of gene function, biological processes, phenotypes, and disease associations across multiple model organisms. The AGR aggregates and harmonizes data from member databases including MGI (mouse), RGD (rat), SGD (yeast), WormBase (C. elegans), FlyBase (D. melanogaster), ZFIN (zebrafish), and Xenbase (X. laevis and X. tropicalis).",
+      "license": {
+        "terms_of_use_url": "https://www.alliancegenome.org/privacy-warranty-licensing",
+        "license_name": "CC0 1.0 Universal",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "url": [
+        "All downloads: https://www.alliancegenome.org/downloads",
+        "FMS (File Management System): https://fms.alliancegenome.org/download/"
+      ],
+      "version": "9.0.0"
+    }
+  ]
+}

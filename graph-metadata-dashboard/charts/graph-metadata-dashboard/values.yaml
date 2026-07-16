@@ -1,0 +1,40 @@
+replicaCount: 1
+
+image:
+  repository: graph-metadata-dashboard
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8050
+
+env:
+  KGX_STORAGE_BASE_URL: "https://kgx-storage.ci.transltr.io/releases"
+  METADATA_CACHE_BACKEND: "diskcache"
+  METADATA_CACHE_DIR: "/tmp/graph-metadata-dashboard-cache"
+  METADATA_CACHE_TTL_SECONDS: "3600"
+  REQUESTS_TIMEOUT_SECONDS: "20"
+  PORT: "8050"
+  DASH_DEBUG: "false"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL

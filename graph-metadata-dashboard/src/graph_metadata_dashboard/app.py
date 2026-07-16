@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+from dash import Dash, dcc, html, page_container
+
+from graph_metadata_dashboard.cache.factory import create_metadata_cache
+from graph_metadata_dashboard.config import Settings
+from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
+
+
+def create_app(settings: Settings | None = None) -> Dash:
+    settings = settings or Settings.from_env()
+    app = Dash(
+        __name__,
+        use_pages=True,
+        pages_folder="",
+        title="Graph Metadata Dashboard",
+        suppress_callback_exceptions=True,
+    )
+
+    cache = create_metadata_cache(settings)
+    kgx_client = KgxStorageClient(
+        base_url=settings.kgx_storage_base_url,
+        timeout_seconds=settings.requests_timeout_seconds,
+    )
+
+    from graph_metadata_dashboard.pages import comparison, single_graph
+
+    single_graph.register_callbacks(app, cache=cache, kgx_client=kgx_client)
+    comparison.register_callbacks(app)
+
+    app.layout = html.Div(
+        className="app-shell",
+        children=[
+            dcc.Location(id="url"),
+            dcc.Store(id="session-id", storage_type="session"),
+            html.Header(
+                className="site-header",
+                children=[
+                    html.Div(
+                        [
+                            html.P("Translator", className="eyebrow"),
+                            html.H1("Graph Metadata Dashboard"),
+                        ]
+                    ),
+                    html.Nav(
+                        className="site-nav",
+                        children=[
+                            dcc.Link("Single Graph", href="/", className="nav-link"),
+                            dcc.Link("Comparison", href="/comparison", className="nav-link"),
+                        ],
+                    ),
+                ],
+            ),
+            html.Main(className="page", children=[dcc.Loading(page_container)]),
+        ],
+    )
+    return app
+
+
+server = create_app().server
