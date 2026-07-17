@@ -38,12 +38,14 @@ def create_app(settings: Settings | None = None) -> Dash:
             html.Header(
                 className="site-header",
                 children=[
-                    html.Div(
-                        [
-                            html.P("Translator", className="eyebrow"),
-                            html.H1("Graph Metadata Dashboard"),
-                        ]
-                    ),
+                    html.Div([
+                        html.P("Knowledge Graph Metadata Dashboard", className="eyebrow"),
+                        html.H1([
+                            "Metadata Dashboard for Graphs Built with ",
+                            html.A("ORION", href="https://github.com/RobokopU24/ORION",
+                            target="_blank", rel="noopener"),
+                        ]),
+                    ]),
                     html.Nav(
                         className="site-nav",
                         children=[

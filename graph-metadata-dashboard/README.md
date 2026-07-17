@@ -16,6 +16,14 @@ This first pass implements the single-graph workflow:
 The comparison page is present as a placeholder only. Comparison visualizations are deferred until
 the ORION comparison module is available.
 
+## Open Visualization Scope
+
+The following AGENTS.md visualization items are intentionally still open:
+
+- ID-prefix composition drill-down per node category.
+- Attribute fill-rate view per category with top-N plus search.
+- Predicate composition per knowledge source from `predicates_by_knowledge_source`.
+
 ## Local Development
 
 Install dependencies:

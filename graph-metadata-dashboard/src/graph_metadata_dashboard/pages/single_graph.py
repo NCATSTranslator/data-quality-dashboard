@@ -45,11 +45,14 @@ def layout() -> html.Div:
                 children=[
                     html.Div(
                         [
-                            html.P("ORION JSON-LD metadata", className="eyebrow"),
-                            html.H2("Inspect one graph without loading the graph itself"),
+                            html.P("ORION Graph Metadata", className="eyebrow"),
+                            html.H2("Explore graph structure and provenance through metadata"),
                             html.P(
-                                "Choose the latest Biomedical Data Translator KGX-storage release "
-                                "or upload a graph-metadata.json file."
+                                "Explore graph structure and provenance by selecting one or more graph releases from " \
+                                "the Biomedical Data Translator KGX storage, "
+                                "or by uploading your own graph-metadata.json (optionally with schema.json). "
+                                "Selecting a single graph summarizes and visualizes its metadata, " \
+                                "while selecting multiple graphs compares their metadata."
                             ),
                         ]
                     ),
