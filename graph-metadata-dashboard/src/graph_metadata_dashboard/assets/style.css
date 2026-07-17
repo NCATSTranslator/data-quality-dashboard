@@ -72,6 +72,10 @@ button {
   color: white;
 }
 
+.secondary-button {
+  background: var(--teal);
+}
+
 .page {
   padding: 1rem clamp(1rem, 4vw, 4rem) 4rem;
 }
@@ -157,6 +161,14 @@ button {
   margin: 0.2rem 0;
 }
 
+.section-heading-row,
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -201,6 +213,48 @@ button {
   font-weight: 700;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1rem, 3vw, 3rem);
+  background: rgba(23, 32, 29, 0.58);
+}
+
+.modal-panel {
+  width: min(1180px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+}
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-body {
+  padding: 1rem;
+}
+
+.modal-graph {
+  min-height: 620px;
+}
+
 @media (max-width: 820px) {
   .site-header,
   .selector-grid {
@@ -218,5 +272,11 @@ button {
 
   .definition-grid {
     grid-template-columns: 1fr;
+  }
+
+  .section-heading-row,
+  .modal-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -104,19 +104,57 @@ def layout() -> html.Div:
                 ],
             ),
             html.Div(id="load-status", className="status-line"),
-            dcc.Tabs(
-                id="graph-visual-tabs",
-                value="overview",
-                children=[
-                    dcc.Tab(label="Overview", value="overview"),
-                    dcc.Tab(label="Provenance", value="provenance"),
-                    dcc.Tab(label="Node Categories", value="categories"),
-                    dcc.Tab(label="Sankey", value="sankey"),
-                ],
-            ),
             html.Div(id="overview-panel"),
             html.Div(id="provenance-panel"),
-            html.Div(id="schema-panel"),
+            html.Div(id="node-categories-panel"),
+            html.Div(
+                id="sankey-action-card",
+                className="content-card",
+                style={"display": "none"},
+                children=[
+                    html.Div(
+                        className="section-heading-row",
+                        children=[
+                            html.Div(
+                                children=[
+                                    html.H3("Predicate / Edge Composition"),
+                                    html.P(
+                                        "Open the Sankey diagram as an overlay without "
+                                        "leaving the current summary page.",
+                                        className="status-line",
+                                    ),
+                                ]
+                            ),
+                            html.Button(
+                                "Open Sankey diagram",
+                                id="open-sankey",
+                                n_clicks=0,
+                                className="secondary-button",
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            html.Div(
+                id="sankey-modal-container",
+                className="modal-backdrop",
+                style={"display": "none"},
+                children=[
+                    html.Div(
+                        className="modal-panel",
+                        children=[
+                            html.Div(
+                                className="modal-header",
+                                children=[
+                                    html.H3("Predicate / Edge Composition"),
+                                    html.Button("Close", id="close-sankey", n_clicks=0),
+                                ],
+                            ),
+                            html.Div(id="sankey-modal-body", className="modal-body"),
+                        ],
+                    )
+                ],
+            ),
         ]
     )
 
@@ -233,60 +271,44 @@ def register_callbacks(
 
     @app.callback(
         Output("overview-panel", "children"),
-        Output("provenance-panel", "style"),
-        Output("schema-panel", "style"),
-        Input("graph-visual-tabs", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
     def render_overview(
-        active_tab: str,
         graph_state: dict[str, Any] | None,
         session_id: str | None,
-    ) -> tuple[Any, dict[str, str], dict[str, str]]:
-        if active_tab != "overview":
-            return "", {"display": "block" if active_tab == "provenance" else "none"}, {
-                "display": "block" if active_tab in {"categories", "sankey"} else "none"
-            }
+    ) -> Any:
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
-            return _empty_state(), {"display": "none"}, {"display": "none"}
-        return _overview(parsed), {"display": "none"}, {"display": "none"}
+            return _empty_state()
+        return _overview(parsed)
 
     @app.callback(
         Output("provenance-panel", "children"),
-        Input("graph-visual-tabs", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
     def render_provenance(
-        active_tab: str,
         graph_state: dict[str, Any] | None,
         session_id: str | None,
     ) -> Any:
-        if active_tab != "provenance":
-            return ""
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
-            return _empty_state()
+            return ""
         return _provenance(parsed)
 
     @app.callback(
-        Output("schema-panel", "children"),
-        Input("graph-visual-tabs", "value"),
+        Output("node-categories-panel", "children"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
-    def render_schema_visualization(
-        active_tab: str,
+    def render_node_categories(
         graph_state: dict[str, Any] | None,
         session_id: str | None,
     ) -> Any:
-        if active_tab not in {"categories", "sankey"}:
-            return ""
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
-            return _empty_state()
+            return ""
         parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
         if parsed.schema is None:
             return html.Div(
@@ -299,16 +321,67 @@ def register_callbacks(
                     ),
                 ],
             )
-        if active_tab == "categories":
-            return html.Div(
-                className="content-card",
-                children=[
-                    dcc.Graph(figure=node_category_bar(parsed.schema.nodes, top_n=30)),
-                ],
-            )
         return html.Div(
             className="content-card",
-            children=[dcc.Graph(figure=predicate_sankey(parsed.schema.edges, top_n=40))],
+            children=[
+                html.H3("Node Categories"),
+                html.P(
+                    "Top node category counts from schema metadata.",
+                    className="status-line",
+                ),
+                dcc.Graph(figure=node_category_bar(parsed.schema.nodes, top_n=30)),
+            ],
+        )
+
+    @app.callback(
+        Output("sankey-action-card", "style"),
+        Input("loaded-graph-state", "data"),
+    )
+    def toggle_sankey_action(graph_state: dict[str, Any] | None) -> dict[str, str]:
+        return {} if graph_state else {"display": "none"}
+
+    @app.callback(
+        Output("sankey-modal-container", "style"),
+        Output("sankey-modal-body", "children"),
+        Input("open-sankey", "n_clicks"),
+        Input("close-sankey", "n_clicks"),
+        State("loaded-graph-state", "data"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def render_sankey_modal(
+        open_clicks: int | None,
+        close_clicks: int | None,
+        graph_state: dict[str, Any] | None,
+        session_id: str | None,
+    ) -> tuple[dict[str, str], Any]:
+        del open_clicks, close_clicks
+        if callback_context.triggered_id == "close-sankey":
+            return {"display": "none"}, ""
+
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return {"display": "none"}, ""
+        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        if parsed.schema is None:
+            return (
+                {},
+                [
+                    html.H4("Sankey unavailable"),
+                    html.P(
+                        "Schema metadata is required for the Sankey diagram, but it could "
+                        "not be loaded for this graph."
+                    ),
+                ],
+            )
+        return (
+            {},
+            [
+                dcc.Graph(
+                    figure=predicate_sankey(parsed.schema.edges, top_n=40),
+                    className="modal-graph",
+                )
+            ],
         )
 
 

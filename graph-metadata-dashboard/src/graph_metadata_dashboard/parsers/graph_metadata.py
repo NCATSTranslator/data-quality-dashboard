@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
 from typing import Any
 
 from graph_metadata_dashboard.parsers.models import (
@@ -196,6 +197,7 @@ def _string_or_empty(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+@lru_cache(maxsize=1)
 def _orion_metadata_classes() -> tuple[Any, Any]:
     from orion.kgx_metadata import KGXGraphMetadata, KGXKnowledgeGraphSource
 
