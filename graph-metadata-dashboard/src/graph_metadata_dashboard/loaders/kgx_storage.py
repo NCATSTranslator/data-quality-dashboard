@@ -56,12 +56,14 @@ class KgxStorageClient:
         return KgxRelease(source_id=source_id, release_version=release_version, data_url=data_url)
 
     def load_release_graph_metadata(self, release: KgxRelease) -> JsonObject:
-        return self._get_json(urljoin(f"{release.data_url}", "graph-metadata.json"))
+        return self._get_json(urljoin(f"{release.data_url}/", "graph-metadata.json"))
 
-    def load_release_schema(self, release: KgxRelease,
+    def load_release_schema(
+        self,
+        release: KgxRelease,
         schema_reference: str | None = None,
     ) -> JsonObject | None:
-        schema_url = schema_reference or urljoin(f"{release.data_url}", "schema.json")
+        schema_url = schema_reference or urljoin(f"{release.data_url}/", "schema.json")
         try:
             return self._get_json(schema_url)
         except requests.HTTPError as error:
@@ -70,17 +72,28 @@ class KgxStorageClient:
             raise
 
     def _get_json(self, url: str) -> JsonObject:
-        self._validate_fetch_url(url)
+        self._validate_fetch_url(url, self.base_url)
         response = requests.get(url, timeout=self.timeout_seconds)
         response.raise_for_status()
         return ensure_json_object(response.json(), context=url)
 
     @staticmethod
-    def _validate_fetch_url(url: str) -> None:
+    def _validate_fetch_url(url: str, constrain_url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             msg = f"invalid metadata URL: {url}"
             raise ValueError(msg)
+        constraint = urlparse(constrain_url)
+        if parsed.scheme != constraint.scheme or parsed.netloc != constraint.netloc:
+            msg = f"metadata URL is constrained for security and must come from {constrain_url}"
+            raise ValueError(msg)
+
+        constraint_path = constraint.path.rstrip("/")
+        if constraint_path:
+            allowed_prefix = f"{constraint_path}/"
+            if not parsed.path.startswith(allowed_prefix):
+                msg = f"metadata URL is constrained for security and must come from {constrain_url}"
+                raise ValueError(msg)
 
 
 @dataclass(frozen=True)

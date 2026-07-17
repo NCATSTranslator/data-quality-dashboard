@@ -199,6 +199,7 @@ def _string_or_empty(value: Any) -> str:
 
 @lru_cache(maxsize=1)
 def _orion_metadata_classes() -> tuple[Any, Any]:
+    # lazily import ORION when it is used
     from orion.kgx_metadata import KGXGraphMetadata, KGXKnowledgeGraphSource
 
     return KGXGraphMetadata, KGXKnowledgeGraphSource
