@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
-from graph_metadata_dashboard.viz.figures import node_category_bar, predicate_sankey
+from graph_metadata_dashboard.viz.figures import (
+    count_bar,
+    node_category_bar,
+    predicate_sankey,
+    subgraph_contribution_bar,
+)
 from tests.conftest import load_fixture
 
 
@@ -22,3 +27,38 @@ def test_predicate_sankey_builds_limited_flows() -> None:
 
     assert len(figure.data) == 1
     assert len(figure.data[0].link.value) <= 6
+
+
+def test_count_bar_limits_top_n() -> None:
+    figure = count_bar(
+        {"source-a": 10, "source-b": 30, "source-c": 20},
+        title="Sources",
+        xaxis_title="Source",
+        top_n=2,
+    )
+
+    assert list(figure.data[0].x) == ["source-b", "source-c"]
+
+
+def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+
+    figure = subgraph_contribution_bar(parsed.subgraphs)
+
+    assert figure.data[0].orientation is None
+    assert figure.layout.yaxis.type == "log"
+    assert figure.layout.margin.b <= 150
+    assert all(
+        not str(label).startswith("A ROBOKOP Knowledge Graph based on")
+        for label in figure.data[0].x
+    )
+    assert all(len(str(label)) <= 30 for label in figure.data[0].x)
+    assert "Unspecified source" not in figure.data[0].x
+    assert any(
+        "A ROBOKOP Knowledge Graph based on" in str(label)
+        for label in figure.data[0].customdata
+    )
+    assert any(
+        "https://robokop.renci.org/graphs/" in str(label)
+        for label in figure.data[0].customdata
+    )

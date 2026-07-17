@@ -16,7 +16,7 @@ def layout() -> html.Div:
     )
 
 
-register_page(__name__, path="/comparison", name="Comparison", layout=layout)
+register_page(__name__, path="/comparison", name="Comparison")
 
 
 def register_callbacks(app: Dash) -> None:

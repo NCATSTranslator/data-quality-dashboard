@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from orion.kgx_metadata import KGXGraphMetadata, KGXKnowledgeGraphSource
-
 from graph_metadata_dashboard.parsers.models import (
     EdgeTriple,
     GraphSchema,
@@ -14,14 +12,17 @@ from graph_metadata_dashboard.parsers.models import (
     ParsedGraphMetadata,
     SchemaReference,
     SubgraphSource,
-    int_or_none
+    int_or_none,
 )
 
 
-def parse_graph_metadata(data: Mapping[str, Any], *,
+def parse_graph_metadata(
+    data: Mapping[str, Any],
+    *,
     schema_data: Mapping[str, Any] | None = None,
 ) -> ParsedGraphMetadata:
     raw = dict(data)
+    KGXGraphMetadata, _ = _orion_metadata_classes()
     kgx_metadata = KGXGraphMetadata.from_dict(raw)
     schema_reference = detect_schema_reference(raw)
     inline_schema = raw.get("schema") if schema_reference.kind == "inline" else None
@@ -110,6 +111,7 @@ def _parse_knowledge_source(entry: Mapping[str, Any]) -> KnowledgeSource:
 
 
 def _parse_subgraph(entry: Mapping[str, Any]) -> SubgraphSource:
+    _, KGXKnowledgeGraphSource = _orion_metadata_classes()
     kgx_source = KGXKnowledgeGraphSource.from_dict(dict(entry))
     return SubgraphSource(
         id=_string_or_empty(getattr(kgx_source, "id", entry.get("@id", ""))),
@@ -192,3 +194,9 @@ def _int_dict(value: Any) -> dict[str, int]:
 
 def _string_or_empty(value: Any) -> str:
     return "" if value is None else str(value)
+
+
+def _orion_metadata_classes() -> tuple[Any, Any]:
+    from orion.kgx_metadata import KGXGraphMetadata, KGXKnowledgeGraphSource
+
+    return KGXGraphMetadata, KGXKnowledgeGraphSource

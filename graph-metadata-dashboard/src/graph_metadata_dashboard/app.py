@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dash import Dash, dcc, html, page_container
+from importlib import import_module
+from types import ModuleType
+
+from dash import Dash, dcc, html, page_container, page_registry
 
 from graph_metadata_dashboard.cache.factory import create_metadata_cache
 from graph_metadata_dashboard.config import Settings
@@ -12,7 +15,6 @@ def create_app(settings: Settings | None = None) -> Dash:
     app = Dash(
         __name__,
         use_pages=True,
-        pages_folder="",
         title="Graph Metadata Dashboard",
         suppress_callback_exceptions=True,
     )
@@ -23,8 +25,8 @@ def create_app(settings: Settings | None = None) -> Dash:
         timeout_seconds=settings.requests_timeout_seconds,
     )
 
-    from graph_metadata_dashboard.pages import comparison, single_graph
-
+    single_graph = _discovered_page_module("single_graph")
+    comparison = _discovered_page_module("comparison")
     single_graph.register_callbacks(app, cache=cache, kgx_client=kgx_client)
     comparison.register_callbacks(app)
 
@@ -57,4 +59,14 @@ def create_app(settings: Settings | None = None) -> Dash:
     return app
 
 
-server = create_app().server
+def create_server():
+    return create_app().server
+
+
+def _discovered_page_module(module_basename: str) -> ModuleType:
+    for page in page_registry.values():
+        module_name = page["module"]
+        if module_name.endswith(f".{module_basename}"):
+            return import_module(module_name)
+    msg = f"Dash did not discover page module ending in {module_basename!r}"
+    raise RuntimeError(msg)

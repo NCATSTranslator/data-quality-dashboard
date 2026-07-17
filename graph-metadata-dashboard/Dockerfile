@@ -25,4 +25,4 @@ COPY --from=builder /app /app
 USER appuser
 EXPOSE 8050
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8050", "graph_metadata_dashboard.app:server"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8050", "graph_metadata_dashboard.app:create_server()"]

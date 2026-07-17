@@ -141,6 +141,22 @@ button {
   font-weight: 600;
 }
 
+.upload-selection {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin: 0.75rem 0 1rem;
+  padding: 0.8rem 1rem;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  font-size: 0.94rem;
+  font-weight: 650;
+}
+
+.upload-selection p,
+.empty-inline p {
+  margin: 0.2rem 0;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

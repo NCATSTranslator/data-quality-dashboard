@@ -18,6 +18,10 @@ from dash import (
 )
 
 from graph_metadata_dashboard.cache import MetadataCache
+from graph_metadata_dashboard.components.single_graph import (
+    provenance_contribution,
+    upload_selection_status,
+)
 from graph_metadata_dashboard.loaders.kgx_storage import (
     KgxRelease,
     KgxStorageClient,
@@ -29,7 +33,6 @@ from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
 from graph_metadata_dashboard.viz.figures import (
     node_category_bar,
     predicate_sankey,
-    subgraph_contribution_bar,
 )
 
 
@@ -94,6 +97,7 @@ def layout() -> html.Div:
                                 children=html.Div(["Optional schema.json"]),
                                 multiple=False,
                             ),
+                            html.Div(id="upload-selection-status", className="upload-selection"),
                             html.Button("Load upload", id="load-upload", n_clicks=0),
                         ],
                     ),
@@ -117,7 +121,7 @@ def layout() -> html.Div:
     )
 
 
-register_page(__name__, path="/", name="Single Graph", layout=layout)
+register_page(__name__, path="/", name="Single Graph")
 
 
 def register_callbacks(
@@ -148,6 +152,17 @@ def register_callbacks(
             return [], f"Could not load KGX manifest: {error}"
         options = [{"label": release.label, "value": release.source_id} for release in releases]
         return options, f"Loaded {len(options)} latest releases."
+
+    @app.callback(
+        Output("upload-selection-status", "children"),
+        Input("upload-graph-metadata", "filename"),
+        Input("upload-schema", "filename"),
+    )
+    def render_upload_selection(
+        graph_filename: str | None,
+        schema_filename: str | None,
+    ) -> list[html.P]:
+        return upload_selection_status(graph_filename, schema_filename)
 
     @app.callback(
         Output("loaded-graph-state", "data"),
@@ -409,7 +424,7 @@ def _provenance(parsed: ParsedGraphMetadata) -> html.Div:
         className="content-card",
         children=[
             html.H3("Sources and Subgraphs"),
-            dcc.Graph(figure=subgraph_contribution_bar(parsed.subgraphs)),
+            provenance_contribution(parsed),
             html.H4("Underlying Data Sources"),
             dash_table.DataTable(
                 columns=[

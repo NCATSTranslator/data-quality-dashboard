@@ -7,6 +7,8 @@ import plotly.graph_objects as go
 from graph_metadata_dashboard.parsers.models import EdgeTriple, NodeCategory, SubgraphSource
 
 OTHER_LABEL = "Other"
+MAX_AXIS_LABEL_LENGTH = 30
+MIN_SHARED_PREFIX_LENGTH = 16
 
 
 def node_category_bar(
@@ -40,19 +42,34 @@ def subgraph_contribution_bar(
     *,
     metric: str = "node_count",
     log_scale: bool = True,
+    top_n: int = 40,
 ) -> go.Figure:
-    values: list[tuple[str, int]] = []
+    values: list[tuple[str, str, str, int]] = []
     for source in subgraphs:
         count = source.node_count if metric == "node_count" else source.edge_count
         if count is not None:
-            values.append((source.name or source.id or "Unknown", count))
-    values.sort(key=lambda item: item[1], reverse=True)
+            values.append(
+                (
+                    source.name or source.id or "Unknown",
+                    _source_id_label(source.id),
+                    _subgraph_hover_label(source),
+                    count,
+                )
+            )
+    values = sorted(values, key=lambda item: item[3], reverse=True)[:top_n]
+    full_labels = [label for label, _, _, _ in values]
+    fallback_labels = [fallback for _, fallback, _, _ in values]
+    labels = _unique_labels(_shorten_common_labels(full_labels, fallback_labels))
+    hover_labels = [hover_label for _, _, hover_label, _ in values]
+    counts = [count for _, _, _, count in values]
 
     fig = go.Figure(
         data=[
             go.Bar(
-                x=[label for label, _ in values],
-                y=[count for _, count in values],
+                x=labels,
+                y=counts,
+                customdata=hover_labels,
+                hovertemplate="%{customdata}<br>Count: %{y:,}<extra></extra>",
                 marker_color="#b45309",
             )
         ]
@@ -61,6 +78,42 @@ def subgraph_contribution_bar(
         title="Subgraph Contribution",
         xaxis_title="Subgraph",
         yaxis_title="Count",
+        margin={
+            "l": 48,
+            "r": 24,
+            "t": 56,
+            "b": _bottom_margin_for_labels(labels),
+        },
+        yaxis_type="log" if log_scale else "linear",
+        xaxis={"automargin": True, "tickangle": -35},
+    )
+    return fig
+
+
+def count_bar(
+    counts: dict[str, int],
+    *,
+    title: str,
+    xaxis_title: str,
+    yaxis_title: str = "Count",
+    top_n: int = 30,
+    log_scale: bool = True,
+    marker_color: str = "#b45309",
+) -> go.Figure:
+    values = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:top_n]
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=[label for label, _ in values],
+                y=[count for _, count in values],
+                marker_color=marker_color,
+            )
+        ]
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
         yaxis_type="log" if log_scale else "linear",
     )
@@ -124,3 +177,77 @@ def _sankey_labels(edges: list[tuple[str, str, str, int]]) -> list[str]:
                 seen.add(label)
                 labels.append(label)
     return labels
+
+
+def _truncate_label(label: str, *, max_length: int = MAX_AXIS_LABEL_LENGTH) -> str:
+    if len(label) <= max_length:
+        return label
+    if max_length <= 3:
+        return "." * max_length
+    return f"{label[: max_length - 3]}..."
+
+
+def _shorten_common_labels(labels: list[str], fallback_labels: list[str]) -> list[str]:
+    stripped_prefix = _shared_prefix_to_strip(labels)
+    shortened = []
+    for index, label in enumerate(labels):
+        display_label = label.removeprefix(stripped_prefix).strip() if stripped_prefix else label
+        fallback_label = fallback_labels[index] if index < len(fallback_labels) else "Unknown"
+        shortened.append(_truncate_label(display_label or fallback_label or "Unknown"))
+    return shortened
+
+
+def _shared_prefix_to_strip(labels: list[str]) -> str:
+    if len(labels) < 2:
+        return ""
+    prefix = _common_prefix(labels)
+    if len(prefix.strip()) < MIN_SHARED_PREFIX_LENGTH:
+        return ""
+    prefix = prefix[: prefix.rfind(" ") + 1]
+    if len(prefix.strip()) < MIN_SHARED_PREFIX_LENGTH:
+        return ""
+    return prefix
+
+
+def _common_prefix(labels: list[str]) -> str:
+    prefix = labels[0]
+    for label in labels[1:]:
+        while prefix and not label.startswith(prefix):
+            prefix = prefix[:-1]
+    return prefix
+
+
+def _bottom_margin_for_labels(labels: list[str]) -> int:
+    longest = max((len(label) for label in labels), default=0)
+    return max(90, min(150, 36 + longest * 2))
+
+
+def _source_id_label(source_id: str) -> str:
+    parts = source_id.rstrip("/").split("/")
+    if len(parts) >= 2:
+        return parts[-2]
+    return source_id or "Unknown"
+
+
+def _subgraph_hover_label(source: SubgraphSource) -> str:
+    if source.name and source.id:
+        return f"{source.name}<br>{source.id}"
+    return source.name or source.id or "Unknown"
+
+
+def _unique_labels(labels: list[str]) -> list[str]:
+    totals: defaultdict[str, int] = defaultdict(int)
+    for label in labels:
+        totals[label] += 1
+
+    seen: defaultdict[str, int] = defaultdict(int)
+    unique_labels = []
+    for label in labels:
+        seen[label] += 1
+        if totals[label] == 1:
+            unique_labels.append(label)
+        else:
+            suffix = f" ({seen[label]})"
+            label_max_length = MAX_AXIS_LABEL_LENGTH - len(suffix)
+            unique_labels.append(f"{_truncate_label(label, max_length=label_max_length)}{suffix}")
+    return unique_labels
