@@ -55,8 +55,7 @@ body {
   gap: 0.75rem;
 }
 
-.nav-link,
-button {
+.nav-link {
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink);
@@ -64,16 +63,45 @@ button {
   padding: 0.75rem 1rem;
   font-weight: 700;
   text-decoration: none;
+}
+
+.button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-weight: 750;
   cursor: pointer;
 }
 
-button {
+.button-primary {
   background: var(--ink);
+  border-color: var(--ink);
   color: white;
 }
 
-.secondary-button {
+.button-secondary {
   background: var(--teal);
+  border-color: var(--teal);
+  color: white;
+}
+
+.button-tertiary {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.button:hover,
+.nav-link:hover {
+  transform: translateY(-1px);
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
 }
 
 .page {

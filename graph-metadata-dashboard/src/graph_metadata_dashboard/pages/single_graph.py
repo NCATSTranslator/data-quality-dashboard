@@ -69,8 +69,14 @@ def layout() -> html.Div:
                                         "Refresh releases",
                                         id="refresh-releases",
                                         n_clicks=0,
+                                        className="button button-tertiary",
                                     ),
-                                    html.Button("Load selected graph", id="load-kgx", n_clicks=0),
+                                    html.Button(
+                                        "Load selected graph",
+                                        id="load-kgx",
+                                        n_clicks=0,
+                                        className="button button-primary",
+                                    ),
                                 ],
                             ),
                             dcc.Dropdown(
@@ -98,7 +104,12 @@ def layout() -> html.Div:
                                 multiple=False,
                             ),
                             html.Div(id="upload-selection-status", className="upload-selection"),
-                            html.Button("Load upload", id="load-upload", n_clicks=0),
+                            html.Button(
+                                "Load upload",
+                                id="load-upload",
+                                n_clicks=0,
+                                className="button button-primary",
+                            ),
                         ],
                     ),
                 ],
@@ -129,7 +140,7 @@ def layout() -> html.Div:
                                 "Open Sankey diagram",
                                 id="open-sankey",
                                 n_clicks=0,
-                                className="secondary-button",
+                                className="button button-secondary",
                             ),
                         ],
                     )
@@ -147,7 +158,12 @@ def layout() -> html.Div:
                                 className="modal-header",
                                 children=[
                                     html.H3("Predicate / Edge Composition"),
-                                    html.Button("Close", id="close-sankey", n_clicks=0),
+                                    html.Button(
+                                        "Close",
+                                        id="close-sankey",
+                                        n_clicks=0,
+                                        className="button button-quiet",
+                                    ),
                                 ],
                             ),
                             html.Div(id="sankey-modal-body", className="modal-body"),
