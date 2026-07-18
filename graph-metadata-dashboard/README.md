@@ -5,16 +5,16 @@ graphs.
 
 ## Current Scope
 
-This first pass implements the single-graph workflow:
+This first pass implements the selection-driven graph metadata workflow:
 
 - Load the latest KGX-storage releases from the manifest.
 - Upload a local `graph-metadata.json` and optional `schema.json`.
 - Parse graph metadata through ORION's `KGXGraphMetadata`.
 - Keep metadata payloads in a server-side cache, scoped by session.
-- Render overview, provenance, node-category, and Sankey views.
+- Render overview, provenance, node-category, and Sankey views when one graph is loaded.
+- Switch to a comparison placeholder when two or more graphs are loaded.
 
-The comparison page is present as a placeholder only. Comparison visualizations are deferred until
-the ORION comparison module is available.
+Comparison visualizations are deferred until the ORION comparison module is available.
 
 ## Open Visualization Scope
 

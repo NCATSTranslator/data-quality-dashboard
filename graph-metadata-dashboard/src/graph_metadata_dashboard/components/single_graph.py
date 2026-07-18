@@ -4,12 +4,14 @@ from typing import Any
 
 from dash import dcc, html
 
-from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
+from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata, SubgraphSource
 from graph_metadata_dashboard.viz.figures import count_bar, subgraph_contribution_bar
 
 
 def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
     if parsed.subgraphs:
+        if len(parsed.subgraphs) == 1:
+            return _single_subgraph_statement(parsed.subgraphs[0])
         return html.Div(
             children=[
                 dcc.Graph(figure=subgraph_contribution_bar(parsed.subgraphs)),
@@ -18,6 +20,9 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
 
     primary_sources = primary_knowledge_source_counts(parsed)
     if primary_sources:
+        if len(primary_sources) == 1:
+            source, count = next(iter(primary_sources.items()))
+            return _single_primary_source_statement(source, count)
         return html.Div(
             children=[
                 html.P(
@@ -47,6 +52,38 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
     )
 
 
+def _single_subgraph_statement(subgraph: SubgraphSource) -> html.Div:
+    label = subgraph.name or subgraph.id or "Unknown source"
+    counts = []
+    if subgraph.node_count is not None:
+        counts.append(f"{subgraph.node_count:,} nodes")
+    if subgraph.edge_count is not None:
+        counts.append(f"{subgraph.edge_count:,} edges")
+    count_text = f" ({', '.join(counts)})" if counts else ""
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.P(
+                f"This metadata reports one contributing subgraph: {label}{count_text}.",
+                className="status-line",
+            )
+        ],
+    )
+
+
+def _single_primary_source_statement(source: str, count: int) -> html.Div:
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.P(
+                "No hasPart subgraph counts were provided. Schema summary reports one "
+                f"primary knowledge source: {source} ({count:,} edges).",
+                className="status-line",
+            )
+        ],
+    )
+
+
 def primary_knowledge_source_counts(parsed: ParsedGraphMetadata) -> dict[str, int]:
     if parsed.schema is None:
         return {}
@@ -66,7 +103,7 @@ def upload_selection_status(
     schema_filename: str | None,
 ) -> list[html.P]:
     if not graph_filename and not schema_filename:
-        return [html.P("No upload files selected yet.")]
+        return []
 
     messages = []
     if graph_filename:

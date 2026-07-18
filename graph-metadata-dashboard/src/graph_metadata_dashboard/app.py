@@ -46,16 +46,9 @@ def create_app(settings: Settings | None = None) -> Dash:
                             target="_blank", rel="noopener"),
                         ]),
                     ]),
-                    html.Nav(
-                        className="site-nav",
-                        children=[
-                            dcc.Link("Single Graph", href="/", className="nav-link"),
-                            dcc.Link("Comparison", href="/comparison", className="nav-link"),
-                        ],
-                    ),
                 ],
             ),
-            html.Main(className="page", children=[dcc.Loading(page_container)]),
+            html.Main(className="page", children=[page_container]),
         ],
     )
     return app

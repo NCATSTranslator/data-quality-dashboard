@@ -10,7 +10,10 @@ def layout() -> html.Div:
             html.P("Deferred workflow", className="eyebrow"),
             html.H2("Graph Comparison"),
             html.P(
-                "Graph comparison visualizations"
+                "Comparison mode is now selected implicitly on the main page: load two or "
+                "more graphs and the dashboard will switch to the comparison placeholder. "
+                "The actual diff visualizations remain deferred until the ORION comparison "
+                "module is available."
             ),
         ],
     )
