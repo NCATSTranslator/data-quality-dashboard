@@ -7,13 +7,10 @@ def layout() -> html.Div:
     return html.Div(
         className="content-card",
         children=[
-            html.P("Deferred workflow", className="eyebrow"),
+            html.P("Graph comparison", className="eyebrow"),
             html.H2("Graph Comparison"),
             html.P(
-                "Comparison mode is now selected implicitly on the main page: load two or "
-                "more graphs and the dashboard will switch to the comparison placeholder. "
-                "The actual diff visualizations remain deferred until the ORION comparison "
-                "module is available."
+                "To be implemented"
             ),
         ],
     )

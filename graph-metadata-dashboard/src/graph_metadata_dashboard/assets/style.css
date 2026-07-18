@@ -109,7 +109,7 @@ body {
 
 .hero {
   margin-bottom: 0.25rem;
-  padding: clamp(1.5rem, 4vw, 3rem);
+  padding: clamp(1.1rem, 2.4vw, 1.8rem) clamp(1.25rem, 4vw, 3rem);
 }
 
 .hero h2,

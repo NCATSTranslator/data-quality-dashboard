@@ -164,10 +164,9 @@ def layout() -> html.Div:
                                         children=[
                                             html.H3("Predicate / Edge Composition"),
                                             html.P(
-                                                "Build an in-page Sankey diagram from schema "
-                                                "edge triples. This is loaded on request "
-                                                "because large merged graphs can have many "
-                                                "edge compositions.",
+                                                "Sankey diagram built from schema "
+                                                "edge triples and loaded on request. "
+                                                "Click the button to see the Sankey diagram.",
                                                 className="status-line",
                                             ),
                                         ]
@@ -223,7 +222,7 @@ def register_callbacks(
         except Exception as error:
             return [], f"Could not load KGX manifest: {error}"
         options = [{"label": release.label, "value": release.source_id} for release in releases]
-        return options, f"Loaded {len(options)} latest releases."
+        return options, f"{len(options)} graphs available for selection"
 
     @app.callback(
         Output("upload-selection-status", "children"),
@@ -665,12 +664,10 @@ def _comparison_placeholder(graph_states: list[GraphState]) -> html.Div:
     return html.Div(
         className="content-card comparison-placeholder",
         children=[
-            html.P("Comparison mode", className="eyebrow"),
-            html.H2("Comparison visualizations are coming soon"),
+            html.P("Graph Comparison", className="eyebrow"),
+            html.H2("Graph comparison visualizations"),
             html.P(
-                "The selection model is ready for graph comparison: the dashboard now treats "
-                "two or more loaded graphs as a comparison set. The diff view will plug into "
-                "this branch after the ORION comparison module is available."
+                "To be implemented"
             ),
             html.Div(
                 className="graph-chip-row",
@@ -701,8 +698,8 @@ def _mode_label(selection_count: int) -> str:
 
 def _mode_hint(selection_count: int) -> str:
     if selection_count == 1:
-        return "The dashboard is showing the loaded graph's overview and visualizations."
-    return "The dashboard has switched to comparison mode based on the selection count."
+        return "The dashboard shows the loaded graph's overview and visualizations."
+    return "The dashboard shows comparative overview and visualizations of loaded graphs."
 
 
 def _graph_label(graph_state: GraphState) -> str:
