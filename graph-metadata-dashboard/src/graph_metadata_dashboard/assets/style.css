@@ -53,7 +53,8 @@ body {
 .button {
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0.75rem 1rem;
+  min-height: 2.65rem;
+  padding: 0.68rem 1rem;
   font: inherit;
   font-weight: 750;
   cursor: pointer;
@@ -132,7 +133,7 @@ body {
 
 .content-card {
   margin: 1rem 0;
-  padding: 1.25rem;
+  padding: 1rem;
 }
 
 .selector-card {
@@ -146,7 +147,7 @@ body {
 .selector-subsection {
   border: 1px solid var(--line);
   border-radius: 22px;
-  padding: 1rem;
+  padding: 0.9rem;
   background: rgba(255, 255, 255, 0.52);
 }
 
@@ -173,7 +174,7 @@ body {
   border: 1.5px dashed rgba(15, 118, 110, 0.5);
   border-radius: 20px;
   margin-bottom: 0.75rem;
-  padding: 1.25rem;
+  padding: 1rem;
   background: rgba(15, 118, 110, 0.07);
   text-align: center;
 }
@@ -213,7 +214,7 @@ body {
 }
 
 .reset-selection-button {
-  margin: 0 0 0.5rem;
+  margin: 0;
 }
 
 .selection-summary {
@@ -251,44 +252,88 @@ body {
     var(--card);
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.85rem;
-  margin: 1.25rem 0;
+.overview-heading h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
 }
 
-.metric-card {
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 1rem;
-  background: rgba(255, 250, 240, 0.68);
-}
-
-.metric-label {
-  margin: 0 0 0.4rem;
+.overview-description {
+  width: 100%;
+  margin: 0.25rem 0 0;
   color: var(--muted);
-  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.schema-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(15, 118, 110, 0.24);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--teal);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.overview-info-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.46fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin: 1rem 0;
+  align-items: start;
+}
+
+.overview-key-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.8rem;
+  padding-right: 1rem;
+  border-right: 1px solid var(--line);
+}
+
+.overview-value {
+  min-width: 0;
+}
+
+.overview-value-label {
+  margin: 0 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.metric-card strong {
-  font-size: clamp(1.2rem, 2vw, 1.8rem);
+.overview-value strong {
+  color: var(--teal);
+  font-size: clamp(1.05rem, 1.7vw, 1.55rem);
+  line-height: 1.05;
 }
 
 .definition-grid {
   display: grid;
-  grid-template-columns: minmax(10rem, 0.3fr) minmax(0, 1fr);
-  gap: 0.55rem 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 1.25rem;
 }
 
 .definition-grid dt {
   color: var(--muted);
-  font-weight: 700;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .definition-grid dd {
-  margin: 0;
+  margin: 0.1rem 0 0;
+  font-weight: 700;
 }
 
 .dash-tab {
@@ -310,8 +355,15 @@ body {
     flex-direction: column;
   }
 
-  .metric-grid {
-    grid-template-columns: 1fr 1fr;
+  .overview-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-key-values {
+    padding-right: 0;
+    padding-bottom: 0.8rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .definition-grid {

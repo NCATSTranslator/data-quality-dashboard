@@ -72,6 +72,7 @@ class GraphSchema:
 @dataclass(frozen=True)
 class ParsedGraphMetadata:
     name: str
+    description: str
     release_version: str
     build_version: str
     build_time: str

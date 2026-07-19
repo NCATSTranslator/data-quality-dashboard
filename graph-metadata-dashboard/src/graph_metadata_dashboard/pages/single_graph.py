@@ -36,6 +36,7 @@ from graph_metadata_dashboard.viz.figures import (
 )
 
 GraphState = dict[str, Any]
+LoadGraphResult = tuple[object, object, object, object, object, object, object]
 
 
 def layout() -> html.Div:
@@ -252,7 +253,6 @@ def register_callbacks(
         has_loadable_selection = bool(_selected_source_ids(selected_source) or graph_filename)
         has_resettable_selection = bool(
             has_loadable_selection
-            or graph_filename
             or schema_filename
             or _normalize_graph_states(graph_states)
         )
@@ -286,84 +286,61 @@ def register_callbacks(
         schema_filename: str | None,
         session_id: str | None,
         graph_states: list[GraphState] | GraphState | None,
-    ) -> tuple[object, object, object, object, object, object, object]:
+    ) -> LoadGraphResult:
         del load_clicks, reset_clicks, schema_filename
         session_id = session_id or uuid4().hex
         trigger = callback_context.triggered_id
         if trigger is None:
-            return [], no_update, no_update, no_update, no_update, no_update, no_update
+            return _load_graph_result(graph_state=[])
         if trigger == "reset-selection":
-            return [], "", [], None, None, None, None
-        if trigger == "kgx-release-dropdown":
-            return (
-                _prune_unselected_kgx_states(graph_states, selected_source),
-                no_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
+            return _load_graph_result(
+                graph_state=[],
+                status="",
+                kgx_value=[],
+                upload_contents=None,
+                upload_filename=None,
+                schema_contents=None,
+                schema_filename=None,
             )
+        if trigger == "kgx-release-dropdown":
+            return _load_graph_result(
+                graph_state=_prune_unselected_kgx_states(graph_states, selected_source)
+            )
+
+        if trigger != "load-selected-metadata":
+            return _load_graph_result(status="")
 
         try:
-            if trigger == "load-selected-metadata":
-                selected_sources = _selected_source_ids(selected_source)
-                if not selected_sources and not graph_contents:
-                    return (
-                        no_update,
-                        "Select a KGX release or upload graph-metadata.json first.",
-                        no_update,
-                        no_update,
-                        no_update,
-                        no_update,
-                        no_update,
-                    )
+            selected_sources = _selected_source_ids(selected_source)
+            if not selected_sources and not graph_contents:
+                return _load_graph_result(status="")
 
-                loaded_states = []
-                for source_id in selected_sources:
-                    loaded_states.append(_load_kgx_graph(cache, kgx_client, session_id, source_id))
+            loaded_states = []
+            for source_id in selected_sources:
+                loaded_states.append(_load_kgx_graph(cache, kgx_client, session_id, source_id))
 
-                if graph_contents:
-                    loaded_states.append(
-                        _load_uploaded_graph(
-                            cache,
-                            session_id,
-                            graph_contents,
-                            graph_filename,
-                            schema_contents,
-                        )
+            if graph_contents:
+                loaded_states.append(
+                    _load_uploaded_graph(
+                        cache,
+                        session_id,
+                        graph_contents,
+                        graph_filename,
+                        schema_contents,
                     )
-
-                if len(loaded_states) == 1:
-                    return (
-                        loaded_states,
-                        f"Loaded {loaded_states[0]['label']}.",
-                        no_update,
-                        no_update,
-                        no_update,
-                        no_update,
-                        no_update,
-                    )
-                return (
-                    loaded_states,
-                    f"Loaded {len(loaded_states)} graphs for comparison.",
-                    no_update,
-                    no_update,
-                    no_update,
-                    no_update,
-                    no_update,
                 )
-        except Exception as error:
-            return (
-                no_update,
-                f"Could not load graph metadata: {error}",
-                no_update,
-                no_update,
-                no_update,
-                no_update,
-                no_update,
+
+            if len(loaded_states) == 1:
+                return _load_graph_result(
+                    graph_state=loaded_states,
+                    status=f"Loaded {loaded_states[0]['label']}.",
+                )
+            return _load_graph_result(
+                graph_state=loaded_states,
+                status=f"Loaded {len(loaded_states)} graphs for comparison.",
             )
-        return no_update, "", no_update, no_update, no_update, no_update, no_update
+        except Exception as error:
+            return _load_graph_result(status=f"Could not load graph metadata: {error}")
 
     @app.callback(
         Output("loaded-graphs-panel", "children"),
@@ -488,6 +465,26 @@ def register_callbacks(
             figure=predicate_sankey(parsed.schema.edges, top_n=40),
             className="inline-sankey-graph",
         )
+
+
+def _load_graph_result(
+    graph_state: object = no_update,
+    status: object = no_update,
+    kgx_value: object = no_update,
+    upload_contents: object = no_update,
+    upload_filename: object = no_update,
+    schema_contents: object = no_update,
+    schema_filename: object = no_update,
+) -> LoadGraphResult:
+    return (
+        graph_state,
+        status,
+        kgx_value,
+        upload_contents,
+        upload_filename,
+        schema_contents,
+        schema_filename,
+    )
 
 
 def _load_kgx_graph(
@@ -633,11 +630,7 @@ def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
                     html.Div(
                         children=[
                             html.P("Active selection", className="eyebrow"),
-                            html.H3(_mode_label(len(graph_states))),
-                            html.P(
-                                _mode_hint(len(graph_states)),
-                                className="status-line",
-                            ),
+                            html.H3(_mode_label(len(graph_states))),                            
                         ]
                     ),
                 ],
@@ -692,14 +685,8 @@ def _empty_state() -> html.Div:
 
 def _mode_label(selection_count: int) -> str:
     if selection_count == 1:
-        return "Single-graph view"
+        return "Single graph selected"
     return f"{selection_count} graphs selected"
-
-
-def _mode_hint(selection_count: int) -> str:
-    if selection_count == 1:
-        return "The dashboard shows the loaded graph's overview and visualizations."
-    return "The dashboard shows comparative overview and visualizations of loaded graphs."
 
 
 def _graph_label(graph_state: GraphState) -> str:
@@ -722,40 +709,60 @@ def _graph_metadata_line(graph_state: GraphState) -> str:
 
 def _overview(parsed: ParsedGraphMetadata) -> html.Div:
     return html.Div(
-        className="content-card",
+        className="content-card overview-card",
         children=[
             html.Div(
                 className="overview-heading",
                 children=[
-                    html.P(
-                        parsed.schema_reference.kind.capitalize() + " schema",
-                        className="eyebrow",
+                    html.H2(
+                        [
+                            parsed.name or "Unnamed graph",
+                            " ",
+                            html.Span(
+                                _schema_badge_label(parsed),
+                                className="schema-badge",
+                            ),
+                        ]
                     ),
-                    html.H2(parsed.name or "Unnamed graph"),
-                    html.P(parsed.release_version or "No release version provided"),
+                    html.P(
+                        parsed.description or "No graph description provided.",
+                        className="overview-description",
+                    ),
                 ],
             ),
             html.Div(
-                className="metric-grid",
+                className="overview-info-grid",
                 children=[
-                    _metric("Nodes", _format_count(parsed.total_node_count)),
-                    _metric("Edges", _format_count(parsed.total_edge_count)),
-                    _metric("Biolink", parsed.biolink_version or "Unknown"),
-                    _metric("Babel", parsed.babel_version or "Unknown"),
+                    html.Div(
+                        className="overview-key-values",
+                        children=[
+                            _overview_value("Nodes", _format_count(parsed.total_node_count)),
+                            _overview_value("Edges", _format_count(parsed.total_edge_count)),
+                            _overview_value("Biolink", parsed.biolink_version or "Unknown"),
+                            _overview_value("Babel", parsed.babel_version or "Unknown"),
+                            _overview_value(
+                                "Data sources",
+                                _format_count(len(parsed.knowledge_sources)),
+                            ),
+                            _overview_value("Subgraphs", _format_count(len(parsed.subgraphs))),
+                        ],
+                    ),
+                    _definition_list(
+                        {
+                            "Release version": parsed.release_version,
+                            "Date created": parsed.date_created,
+                            "Date modified": parsed.date_modified,
+                            "License": parsed.license,
+                        }
+                    ),
                 ],
-            ),
-            _definition_list(
-                {
-                    "Build version": parsed.build_version,
-                    "Build time": parsed.build_time,
-                    "Date created": parsed.date_created,
-                    "Date modified": parsed.date_modified,
-                    "License": parsed.license,
-                    "Schema marker": parsed.schema_version_marker,
-                }
             ),
         ],
     )
+
+
+def _schema_badge_label(parsed: ParsedGraphMetadata) -> str:
+    return f"{parsed.schema_reference.kind.upper()} SCHEMA"
 
 
 def _provenance(parsed: ParsedGraphMetadata) -> html.Div:
@@ -790,10 +797,13 @@ def _provenance(parsed: ParsedGraphMetadata) -> html.Div:
     )
 
 
-def _metric(label: str, value: str) -> html.Div:
+def _overview_value(label: str, value: str) -> html.Div:
     return html.Div(
-        className="metric-card",
-        children=[html.P(label, className="metric-label"), html.Strong(value)],
+        className="overview-value",
+        children=[
+            html.P(label, className="overview-value-label"),
+            html.Strong(value),
+        ],
     )
 
 

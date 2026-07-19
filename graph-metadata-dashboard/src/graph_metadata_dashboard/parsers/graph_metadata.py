@@ -32,6 +32,7 @@ def parse_graph_metadata(
 
     return ParsedGraphMetadata(
         name=_call_or_default(kgx_metadata, "get_graph_name", raw.get("name", "")),
+        description=_string_or_empty(raw.get("description", None)),
         release_version=_call_or_default(
             kgx_metadata, "get_release_version", raw.get("version", "")
         ),

@@ -8,6 +8,7 @@ def test_parse_small_single_source_fixture() -> None:
     parsed = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
 
     assert parsed.name
+    assert parsed.description
     assert parsed.release_version
     assert parsed.biolink_version
     assert parsed.schema_reference.kind in {"inline", "absent"}
