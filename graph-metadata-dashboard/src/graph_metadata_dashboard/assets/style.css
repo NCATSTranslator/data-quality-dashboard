@@ -319,8 +319,8 @@ body {
 
 .definition-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.55rem 1.25rem;
+  grid-template-columns: 9.75rem minmax(0, 1fr);
+  gap: 0.55rem 0.85rem;
 }
 
 .definition-grid dt {
@@ -334,6 +334,7 @@ body {
 .definition-grid dd {
   margin: 0.1rem 0 0;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .dash-tab {
