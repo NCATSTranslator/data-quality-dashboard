@@ -29,6 +29,20 @@ def test_predicate_sankey_builds_limited_flows() -> None:
     assert len(figure.data[0].link.value) <= 6
 
 
+def test_predicate_sankey_can_render_all_flows() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+
+    limited = predicate_sankey(parsed.schema.edges, top_n=3)
+    unfiltered = predicate_sankey(parsed.schema.edges, top_n=None)
+    negative_unfiltered = predicate_sankey(parsed.schema.edges, top_n=-1)
+
+    assert len(unfiltered.data[0].link.value) >= len(limited.data[0].link.value)
+    assert len(negative_unfiltered.data[0].link.value) == len(unfiltered.data[0].link.value)
+    assert str(unfiltered.layout.title.text).startswith("All ")
+    assert unfiltered.layout.height >= 700
+
+
 def test_count_bar_limits_top_n() -> None:
     figure = count_bar(
         {"source-a": 10, "source-b": 30, "source-c": 20},
@@ -38,6 +52,8 @@ def test_count_bar_limits_top_n() -> None:
     )
 
     assert list(figure.data[0].x) == ["source-b", "source-c"]
+    assert figure.layout.yaxis.type == "log"
+    assert figure.layout.yaxis.dtick == 1
 
 
 def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None:
@@ -47,6 +63,7 @@ def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None
 
     assert figure.data[0].orientation is None
     assert figure.layout.yaxis.type == "log"
+    assert figure.layout.yaxis.dtick == 1
     assert figure.layout.margin.b <= 150
     assert all(
         not str(label).startswith("A ROBOKOP Knowledge Graph based on")

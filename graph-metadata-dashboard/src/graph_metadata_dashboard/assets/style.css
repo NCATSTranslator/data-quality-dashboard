@@ -347,8 +347,18 @@ body {
   font-weight: 700;
 }
 
+.sankey-scroll-panel {
+  max-height: min(78vh, 980px);
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .inline-sankey-graph {
-  min-height: 620px;
+  min-width: 1120px;
 }
 
 @media (max-width: 820px) {
@@ -380,5 +390,9 @@ body {
   .section-heading-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .sankey-scroll-panel {
+    max-height: 74vh;
   }
 }

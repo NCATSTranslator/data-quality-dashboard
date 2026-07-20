@@ -9,12 +9,15 @@ from graph_metadata_dashboard.parsers.models import EdgeTriple, NodeCategory, Su
 OTHER_LABEL = "Other"
 MAX_AXIS_LABEL_LENGTH = 30
 MIN_SHARED_PREFIX_LENGTH = 16
+SANKEY_BASE_HEIGHT = 700
+SANKEY_PIXELS_PER_NODE = 14
+SANKEY_MAX_HEIGHT = 4200
 
 
 def node_category_bar(
     nodes: tuple[NodeCategory, ...],
     *,
-    top_n: int = 30,
+    top_n: int = 40,
     log_scale: bool = True,
 ) -> go.Figure:
     top_nodes = sorted(nodes, key=lambda item: item.count, reverse=True)[:top_n]
@@ -32,7 +35,7 @@ def node_category_bar(
         xaxis_title="Category",
         yaxis_title="Node count",
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
-        yaxis_type="log" if log_scale else "linear",
+        yaxis=_yaxis_config(log_scale),
     )
     return fig
 
@@ -86,7 +89,7 @@ def subgraph_contribution_bar(
         ]
     )
     fig.update_layout(
-        title="Subgraph Contribution",
+        title="Top 40 Subgraph Contribution",
         xaxis_title="Subgraph",
         yaxis_title=yaxis_title,
         margin={
@@ -95,7 +98,7 @@ def subgraph_contribution_bar(
             "t": 56,
             "b": _bottom_margin_for_labels(labels),
         },
-        yaxis_type="log" if log_scale else "linear",
+        yaxis=_yaxis_config(log_scale),
         xaxis={"automargin": True, "tickangle": -35},
     )
     return fig
@@ -107,7 +110,7 @@ def count_bar(
     title: str,
     xaxis_title: str,
     yaxis_title: str = "Count",
-    top_n: int = 30,
+    top_n: int = 40,
     log_scale: bool = True,
     marker_color: str = "#b45309",
 ) -> go.Figure:
@@ -126,13 +129,13 @@ def count_bar(
         xaxis_title=xaxis_title,
         yaxis_title=yaxis_title,
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
-        yaxis_type="log" if log_scale else "linear",
+        yaxis=_yaxis_config(log_scale),
     )
     return fig
 
 
-def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int = 40) -> go.Figure:
-    selected_edges = sorted(edges, key=lambda item: item.count, reverse=True)[:top_n]
+def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -> go.Figure:
+    selected_edges = _select_sankey_edges(edges, top_n=top_n)
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
@@ -158,10 +161,32 @@ def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int = 40) -> go.Fi
         ]
     )
     fig.update_layout(
-        title=f"Top {min(top_n, len(edges))} Subject-Predicate-Object Flows",
+        title=_sankey_title(edges, top_n=top_n),
+        height=_sankey_height(labels),
         margin={"l": 24, "r": 24, "t": 56, "b": 24},
     )
     return fig
+
+
+def _select_sankey_edges(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int | None,
+) -> tuple[EdgeTriple, ...]:
+    sorted_edges = tuple(sorted(edges, key=lambda item: item.count, reverse=True))
+    if top_n is None or top_n < 0:
+        return sorted_edges
+    return sorted_edges[:top_n]
+
+
+def _sankey_title(edges: tuple[EdgeTriple, ...], *, top_n: int | None) -> str:
+    if top_n is None or top_n < 0:
+        return "All Subject-Predicate-Object Flows"
+    return f"Top {min(top_n, len(edges))} Subject-Predicate-Object Flows"
+
+
+def _sankey_height(labels: list[str]) -> int:
+    return min(SANKEY_MAX_HEIGHT, max(SANKEY_BASE_HEIGHT, len(labels) * SANKEY_PIXELS_PER_NODE))
 
 
 def _collapse_edges(
@@ -231,6 +256,12 @@ def _common_prefix(labels: list[str]) -> str:
 def _bottom_margin_for_labels(labels: list[str]) -> int:
     longest = max((len(label) for label in labels), default=0)
     return max(90, min(150, 36 + longest * 2))
+
+
+def _yaxis_config(log_scale: bool) -> dict[str, str | int]:
+    if not log_scale:
+        return {"type": "linear"}
+    return {"type": "log", "dtick": 1}
 
 
 def _source_id_label(source_id: str) -> str:

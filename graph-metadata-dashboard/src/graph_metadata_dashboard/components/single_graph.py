@@ -33,9 +33,8 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
                 dcc.Graph(
                     figure=count_bar(
                         primary_sources,
-                        title="Primary Knowledge Source Contribution",
+                        title="Top 40 primary Knowledge Source Contribution",
                         xaxis_title="Primary knowledge source",
-                        top_n=30,
                     )
                 ),
             ]

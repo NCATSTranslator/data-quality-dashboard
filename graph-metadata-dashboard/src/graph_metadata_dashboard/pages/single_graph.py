@@ -165,15 +165,15 @@ def layout() -> html.Div:
                                         children=[
                                             html.H3("Predicate / Edge Composition"),
                                             html.P(
-                                                "Sankey diagram built from schema "
+                                                "Sankey chart built from schema "
                                                 "edge triples and loaded on request. "
-                                                "Click the button to see the Sankey diagram.",
+                                                "Click the button to see the Sankey chart.",
                                                 className="status-line",
                                             ),
                                         ]
                                     ),
                                     html.Button(
-                                        "Show Sankey diagram",
+                                        "Show Sankey chart",
                                         id="show-sankey",
                                         n_clicks=0,
                                         type="button",
@@ -182,7 +182,10 @@ def layout() -> html.Div:
                                 ],
                             ),
                             dcc.Loading(
-                                html.Div(id="sankey-panel-body"),
+                                html.Div(
+                                    id="sankey-panel-body",
+                                    className="sankey-scroll-panel",
+                                ),
                                 parent_className="sankey-loading",
                             ),
                         ],
@@ -420,7 +423,7 @@ def register_callbacks(
                     "Top node category counts from schema metadata.",
                     className="status-line",
                 ),
-                dcc.Graph(figure=node_category_bar(parsed.schema.nodes, top_n=30)),
+                dcc.Graph(figure=node_category_bar(parsed.schema.nodes)),
             ],
         )
 
@@ -433,6 +436,7 @@ def register_callbacks(
 
     @app.callback(
         Output("sankey-panel-body", "children"),
+        Output("show-sankey", "disabled"),
         Input("show-sankey", "n_clicks"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
@@ -441,29 +445,36 @@ def register_callbacks(
         show_clicks: int | None,
         graph_states: list[GraphState] | GraphState | None,
         session_id: str | None,
-    ) -> Any:
+    ) -> tuple[Any, bool]:
         if callback_context.triggered_id != "show-sankey" or not show_clicks:
-            return ""
+            return "", False
 
         graph_state = _single_graph_state(_normalize_graph_states(graph_states))
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
-            return ""
+            return "", False
         parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
         if parsed.schema is None:
-            return html.Div(
-                className="empty-inline",
-                children=[
-                    html.H4("Sankey unavailable"),
-                    html.P(
-                        "Schema metadata is required for the Sankey diagram, but it could "
-                        "not be loaded for this graph."
-                    ),
-                ],
+            return (
+                html.Div(
+                    className="empty-inline",
+                    children=[
+                        html.H4("Sankey unavailable"),
+                        html.P(
+                            "Schema metadata is required for the Sankey diagram, but it could "
+                            "not be loaded for this graph."
+                        ),
+                    ],
+                ),
+                False,
             )
-        return dcc.Graph(
-            figure=predicate_sankey(parsed.schema.edges, top_n=40),
-            className="inline-sankey-graph",
+        return (
+            dcc.Graph(
+                figure=predicate_sankey(parsed.schema.edges, top_n=None),
+                className="inline-sankey-graph",
+                config={"responsive": True},
+            ),
+            True,
         )
 
 
