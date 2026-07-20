@@ -98,7 +98,8 @@ def _parse_knowledge_source(entry: Mapping[str, Any]) -> KnowledgeSource:
     citation = entry.get("citation")
     citations = [str(item) for item in citation] if isinstance(citation, list) else []
     return KnowledgeSource(
-        id=_string_or_empty(entry.get("id", None) or entry.get("@id", None)),
+        id=_string_or_empty(entry.get("id", None) or entry.get("@id", None) 
+                            or entry.get("identifier", None)),
         name=_string_or_empty(entry.get("name", None)),
         description=_string_or_empty(entry.get("description", None)),
         license=_string_or_empty(entry.get("license", None)),
