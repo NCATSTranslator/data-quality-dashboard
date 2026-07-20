@@ -293,7 +293,7 @@ body {
 .overview-key-values {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.55rem 0.8rem;
+  gap: 0.45rem 0.8rem;
   align-items: center;
   padding-right: 1rem;
   border-right: 1px solid var(--line);
@@ -318,14 +318,15 @@ body {
 
 .overview-value strong {
   color: var(--teal);
-  font-size: clamp(1.05rem, 1.7vw, 1.55rem);
-  line-height: 1.15;
+  font-size: clamp(1.05rem, 1.6vw, 1.50rem);
+  line-height: 1;
 }
 
 .definition-grid {
   display: grid;
   grid-template-columns: 9.75rem minmax(0, 1fr);
   gap: 0.55rem 0.85rem;
+  align-items: center;
 }
 
 .definition-grid dt {
@@ -337,7 +338,7 @@ body {
 }
 
 .definition-grid dd {
-  margin: 0.1rem 0 0;
+  margin: 0;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
