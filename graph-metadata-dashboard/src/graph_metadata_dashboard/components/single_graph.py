@@ -76,7 +76,7 @@ def _single_primary_source_statement(source: str, count: int) -> html.Div:
         className="empty-inline",
         children=[
             html.P(
-                "No hasPart subgraph counts were provided. Schema summary reports one "
+                "No subgraph counts were provided. Schema summary reports one "
                 f"primary knowledge source: {source} ({count:,} edges).",
                 className="status-line",
             )

@@ -44,7 +44,7 @@ def subgraph_contribution_bar(
     log_scale: bool = True,
     top_n: int = 40,
 ) -> go.Figure:
-    values: list[tuple[str, str, str, int]] = []
+    values: list[tuple[str, str, str, int, int | None, int | None]] = []
     for source in subgraphs:
         count = source.node_count if metric == "node_count" else source.edge_count
         if count is not None:
@@ -54,22 +54,33 @@ def subgraph_contribution_bar(
                     _source_id_label(source.id),
                     _subgraph_hover_label(source),
                     count,
+                    source.node_count,
+                    source.edge_count,
                 )
             )
     values = sorted(values, key=lambda item: item[3], reverse=True)[:top_n]
-    full_labels = [label for label, _, _, _ in values]
-    fallback_labels = [fallback for _, fallback, _, _ in values]
+    full_labels = [label for label, _, _, _, _, _ in values]
+    fallback_labels = [fallback for _, fallback, _, _, _, _ in values]
     labels = _unique_labels(_shorten_common_labels(full_labels, fallback_labels))
-    hover_labels = [hover_label for _, _, hover_label, _ in values]
-    counts = [count for _, _, _, count in values]
+    hover_data = [
+        [hover_label, _format_optional_count(node_count), _format_optional_count(edge_count)]
+        for _, _, hover_label, _, node_count, edge_count in values
+    ]
+    counts = [count for _, _, _, count, _, _ in values]
+    yaxis_title = "Node count" if metric == "node_count" else "Edge count"
 
     fig = go.Figure(
         data=[
             go.Bar(
                 x=labels,
                 y=counts,
-                customdata=hover_labels,
-                hovertemplate="%{customdata}<br>Count: %{y:,}<extra></extra>",
+                customdata=hover_data,
+                hovertemplate=(
+                    "%{customdata[0]}"
+                    "<br>Node count: %{customdata[1]}"
+                    "<br>Edge count: %{customdata[2]}"
+                    "<extra></extra>"
+                ),
                 marker_color="#b45309",
             )
         ]
@@ -77,7 +88,7 @@ def subgraph_contribution_bar(
     fig.update_layout(
         title="Subgraph Contribution",
         xaxis_title="Subgraph",
-        yaxis_title="Count",
+        yaxis_title=yaxis_title,
         margin={
             "l": 48,
             "r": 24,
@@ -233,6 +244,10 @@ def _subgraph_hover_label(source: SubgraphSource) -> str:
     if source.name and source.id:
         return f"{source.name}<br>{source.id}"
     return source.name or source.id or "Unknown"
+
+
+def _format_optional_count(value: int | None) -> str:
+    return f"{value:,}" if value is not None else "Unknown"
 
 
 def _unique_labels(labels: list[str]) -> list[str]:

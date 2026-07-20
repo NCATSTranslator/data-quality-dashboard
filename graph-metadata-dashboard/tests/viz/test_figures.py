@@ -56,9 +56,12 @@ def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None
     assert "Unspecified source" not in figure.data[0].x
     assert any(
         "A ROBOKOP Knowledge Graph based on" in str(label)
-        for label in figure.data[0].customdata
+        for label, _, _ in figure.data[0].customdata
     )
     assert any(
         "https://robokop.renci.org/graphs/" in str(label)
-        for label in figure.data[0].customdata
+        for label, _, _ in figure.data[0].customdata
     )
+    assert "Node count:" in figure.data[0].hovertemplate
+    assert "Edge count:" in figure.data[0].hovertemplate
+    assert "Count:" not in figure.data[0].hovertemplate
