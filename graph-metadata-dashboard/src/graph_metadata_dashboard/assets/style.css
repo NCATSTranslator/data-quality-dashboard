@@ -293,28 +293,33 @@ body {
 .overview-key-values {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.45rem 0.8rem;
+  gap: 0.55rem 0.8rem;
+  align-items: center;
   padding-right: 1rem;
   border-right: 1px solid var(--line);
 }
 
 .overview-value {
+  display: grid;
+  align-content: center;
+  gap: 0.08rem;
   min-width: 0;
 }
 
 .overview-value-label {
-  margin: 0 0 0.15rem;
+  margin: 0;
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+  line-height: 1;
   text-transform: uppercase;
 }
 
 .overview-value strong {
   color: var(--teal);
   font-size: clamp(1.05rem, 1.7vw, 1.55rem);
-  line-height: 1.05;
+  line-height: 1.15;
 }
 
 .definition-grid {
