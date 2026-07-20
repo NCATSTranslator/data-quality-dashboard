@@ -36,10 +36,6 @@ def parse_graph_metadata(
         release_version=_call_or_default(
             kgx_metadata, "get_release_version", raw.get("version", "")
         ),
-        build_version=_call_or_default(kgx_metadata, "get_build_version", ""),
-        build_time=_call_or_default(
-            kgx_metadata, "get_build_time", raw.get("dateCreated", "")
-        ),
         date_created=str(raw.get("dateCreated", "")),
         date_modified=str(raw.get("dateModified", "")),
         license=_string_or_empty(raw.get("license", None)),

@@ -26,7 +26,7 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
         return html.Div(
             children=[
                 html.P(
-                    "No hasPart subgraph counts were provided. Showing edge counts by "
+                    "No subgraph counts were provided. Showing edge counts by "
                     "primary knowledge source from schema summary instead.",
                     className="status-line",
                 ),

@@ -74,8 +74,6 @@ class ParsedGraphMetadata:
     name: str
     description: str
     release_version: str
-    build_version: str
-    build_time: str
     date_created: str
     date_modified: str
     license: str
