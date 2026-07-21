@@ -1,28 +1,15 @@
 # graph-metadata-dashboard
 
-A Dash app for visualizing ORION-produced knowledge graph metadata for Biomedical Data Translator
-graphs.
+A Dash app for visualizing and comparing [ORION](https://github.com/robokopu24/orion)-produced knowledge graph metadata for [Biomedical Data Translator](https://ui.transltr.io/) graphs and [ROBOKOP](https://robokop.renci.org/) graphs.
 
-## Current Scope
+## Workflow
 
-This first pass implements the selection-driven graph metadata workflow:
-
-- Load the latest KGX-storage releases from the manifest.
-- Upload a local `graph-metadata.json` and optional `schema.json`.
-- Parse graph metadata through ORION's `KGXGraphMetadata`.
+- Load the latest Biomedical Data Translator knowledge graph metadata files from its [KGX storage release manifest](https://kgx-storage.ci.transltr.io/releases/latest-release-summary.json) for user selection.
+- Allow users to upload a local ORION-produced graph metadata JSON file and optional linked schema JSON file.
+- Parse graph metadata through ORION's `KGXGraphMetadata` class.
 - Keep metadata payloads in a server-side cache, scoped by session.
-- Render overview, provenance, node-category, and Sankey views when one graph is loaded.
-- Switch to a comparison placeholder when two or more graphs are loaded.
-
-Comparison visualizations are deferred until the ORION comparison module is available.
-
-## Open Visualization Scope
-
-The following AGENTS.md visualization items are intentionally still open:
-
-- ID-prefix composition drill-down per node category.
-- Attribute fill-rate view per category with top-N plus search.
-- Predicate composition per knowledge source from `predicates_by_knowledge_source`.
+- Render overview, source and subgraph provenance, node category, and predicate/edge composition Sankey views when one graph is loaded.
+- Render comparative visualizations when two or more graphs are loaded (to be implemented).
 
 ## Local Development
 
@@ -44,11 +31,9 @@ Start the Dash development server:
 uv run graph-metadata-dashboard
 ```
 
-The app listens on `PORT` or defaults to `8050`.
+The app listens on the port number set by the `PORT` environment variable or defaults to `8050`.
 
-## Configuration
-
-Configuration is environment-variable based:
+## Configuration by Environment Variables
 
 - `KGX_STORAGE_BASE_URL`: defaults to `https://kgx-storage.ci.transltr.io/releases`
 - `METADATA_CACHE_BACKEND`: defaults to `diskcache`
