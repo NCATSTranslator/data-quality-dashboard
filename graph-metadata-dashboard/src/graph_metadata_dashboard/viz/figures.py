@@ -164,7 +164,7 @@ def _with_alpha(hex_color: str, alpha: float) -> str:
 
 
 def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -> go.Figure:
-     # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
+    # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
     # category's color is stable regardless of top_n or any future category filter
     all_subject_categories = sorted({
         ", ".join(edge.subject_category) or OTHER_LABEL for edge in edges
