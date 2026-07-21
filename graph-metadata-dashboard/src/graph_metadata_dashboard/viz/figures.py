@@ -163,7 +163,14 @@ def _with_alpha(hex_color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
-def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = None) -> go.Figure:
+def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -> go.Figure:
+     # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
+    # category's color is stable regardless of top_n or any future category filter
+    all_subject_categories = sorted({
+        ", ".join(edge.subject_category) or OTHER_LABEL for edge in edges
+    })
+    subject_color = _assign_palette(all_subject_categories)
+    
     selected_edges = _select_sankey_edges(edges, top_n=top_n)
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
@@ -173,8 +180,6 @@ def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = None)
     # color, keyed off the *subject* category — this is what lets a viewer visually trace a
     # single subject's flows all the way through the predicate column to its objects
     subject_categories = sorted({subject for subject, _, _, _ in collapsed})
-    subject_color = _assign_palette(subject_categories)
- 
     node_colors = [_NODE_DEFAULT_COLOR] * len(labels)
     for subject in subject_categories:
         node_colors[index[f"Subject: {subject}"]] = subject_color[subject]
