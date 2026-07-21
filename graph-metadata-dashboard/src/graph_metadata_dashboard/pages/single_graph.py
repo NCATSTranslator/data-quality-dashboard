@@ -162,10 +162,11 @@ def layout() -> html.Div:
                         className="content-card",
                         style={"display": "none"},
                         children=[
-                            html.H3("Predicate / Edge Composition"),
+                            html.H3("Predicate Composition"),
                             html.P(
-                                "Sankey charts are loaded on request because merged graphs can "
-                                "contain many source, predicate, and category combinations.",
+                                "View this graph's predicates from two perspectives. One shows which "
+                                "knowledge sources contribute to each predicate type. The other shows "
+                                "which entity types those predicates connect.",
                                 className="status-line",
                             ),
                             html.Div(
@@ -176,8 +177,8 @@ def layout() -> html.Div:
                                         children=[
                                             html.H4("Knowledge Source to Predicate"),
                                             html.P(
-                                                "A two-column orientation chart using "
-                                                "pre-aggregated schema summary counts.",
+                                                "A two-column Sankey chart showing which knowledge "
+                                                "sources contribute to each predicate type",
                                                 className="status-line",
                                             ),
                                             html.Button(
@@ -192,11 +193,11 @@ def layout() -> html.Div:
                                     html.Div(
                                         className="sankey-control-block",
                                         children=[
-                                            html.H4("Subject Category to Predicate to Object"),
+                                            html.H4("Subject to Predicate to Object"),
                                             html.P(
-                                                "A category-scoped three-column chart. Choose "
-                                                "one subject category, or explicitly request "
-                                                "the all-category top-40 view.",
+                                                "A subject category-scoped three-column chart. Choose "
+                                                "one subject category, or select \"All categories\" "
+                                                "for the top-40-by-edge-count view in the whole graph.",
                                                 className="status-line",
                                             ),
                                             dcc.Dropdown(
@@ -205,7 +206,7 @@ def layout() -> html.Div:
                                                 clearable=False,
                                             ),
                                             html.Button(
-                                                "Show category Sankey",
+                                                "Show subject-predicate-object Sankey",
                                                 id="show-sankey",
                                                 n_clicks=0,
                                                 type="button",
@@ -776,7 +777,7 @@ def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, s
     ]
     return [
         {
-            "label": "All categories (top 40 by volume)",
+            "label": "All categories (top 40 by edge count)",
             "value": ALL_SUBJECT_CATEGORIES_VALUE,
         },
         *[{"label": subject, "value": subject} for subject in ordered_subjects],

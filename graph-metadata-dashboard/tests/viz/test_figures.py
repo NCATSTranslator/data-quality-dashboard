@@ -28,9 +28,7 @@ def test_predicate_sankey_builds_limited_flows() -> None:
     figure = predicate_sankey(parsed.schema.edges, top_n=3)
 
     assert len(figure.data) == 1
-    assert len(figure.data[0].link.value) <= 6
-    assert "of the flows shown" in figure.data[0].node.hovertemplate
-    assert "of the flows shown" in figure.data[0].link.hovertemplate
+    assert len(figure.data[0].link.value) <= 6    
 
 
 def test_predicate_sankey_can_render_all_flows() -> None:
@@ -80,8 +78,6 @@ def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
     labels = list(figure.data[0].node.label)
     assert "Source: Other" in labels
     assert "Predicate: Other" in labels
-    assert "of the flows shown" in figure.data[0].node.hovertemplate
-    assert "of the flows shown" in figure.data[0].link.hovertemplate
 
 
 def test_count_bar_limits_top_n() -> None:

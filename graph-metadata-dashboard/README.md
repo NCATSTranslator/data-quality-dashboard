@@ -8,7 +8,7 @@ A Dash app for visualizing and comparing [ORION](https://github.com/robokopu24/o
 - Allow users to upload a local ORION-produced graph metadata JSON file and optional linked schema JSON file.
 - Parse graph metadata through ORION's `KGXGraphMetadata` class.
 - Keep metadata payloads in a server-side cache, scoped by session.
-- Render overview, source and subgraph provenance, node category, and predicate/edge composition Sankey views when one graph is loaded.
+- Render overview, source and subgraph provenance, node category, and predicate Sankey views when one graph is loaded.
 - Render comparative visualizations when two or more graphs are loaded (to be implemented).
 
 ## Local Development

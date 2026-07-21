@@ -36,9 +36,9 @@ def node_category_bar(
         ]
     )
     if len(nodes) <= top_n:
-        title = f"{len(nodes)} Node Categories"
+        title = f"{len(nodes)} Node Category Contribution"
     else:
-        title = f"Top {top_n} Node Categories"    
+        title = f"Top {top_n} Node Category Contribution"
     fig.update_layout(
         title=title,
         xaxis_title="Category",
@@ -228,7 +228,7 @@ def predicate_sankey(
                     "customdata": node_customdata,
                     "hovertemplate": (
                         "%{customdata[0]}"
-                        "<br>%{customdata[1]} edges (of the flows shown)"
+                        "<br>%{customdata[1]} edges"
                         "<extra></extra>"
                     ),
                     "color": node_colors,
@@ -244,7 +244,6 @@ def predicate_sankey(
                     "customdata": link_customdata,
                     "hovertemplate": (
                         "%{customdata[0]}: %{customdata[1]} edges"
-                        "<br>(of the flows shown)"
                         "<extra></extra>"
                     ),
                 },
@@ -317,7 +316,7 @@ def knowledge_source_predicate_sankey(
                     "customdata": node_customdata,
                     "hovertemplate": (
                         "%{customdata[0]}"
-                        "<br>%{customdata[1]} edges (of the flows shown)"
+                        "<br>%{customdata[1]} edges"
                         "<extra></extra>"
                     ),
                     "color": node_colors,
@@ -333,7 +332,6 @@ def knowledge_source_predicate_sankey(
                     "customdata": link_customdata,
                     "hovertemplate": (
                         "%{customdata[0]} -> %{customdata[1]}: %{customdata[2]} edges"
-                        "<br>(of the flows shown)"
                         "<extra></extra>"
                     ),
                 },
