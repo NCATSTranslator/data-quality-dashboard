@@ -20,9 +20,17 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
 
     primary_sources = primary_knowledge_source_counts(parsed)
     if primary_sources:
-        if len(primary_sources) == 1:
+        src_len = len(primary_sources)
+        if src_len == 1:
             source, count = next(iter(primary_sources.items()))
             return _single_primary_source_statement(source, count)
+        
+        top_n = 40
+        if src_len <= top_n:
+            title = f"{src_len} Primary Knowledge Source Contribution"
+        else:
+            title = f"Top {top_n} Primary Knowledge Source Contribution"
+
         return html.Div(
             children=[
                 html.P(
@@ -33,8 +41,9 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
                 dcc.Graph(
                     figure=count_bar(
                         primary_sources,
-                        title="Top 40 primary Knowledge Source Contribution",
+                        title=title,
                         xaxis_title="Primary knowledge source",
+                        top_n=top_n,
                     )
                 ),
             ]

@@ -30,8 +30,12 @@ def node_category_bar(
             )
         ]
     )
+    if len(nodes) <= top_n:
+        title = f"{len(nodes)} Node Categories"
+    else:
+        title = f"Top {top_n} Node Categories"    
     fig.update_layout(
-        title=f"Top {min(top_n, len(nodes))} Node Categories",
+        title=title,
         xaxis_title="Category",
         yaxis_title="Node count",
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
@@ -88,8 +92,12 @@ def subgraph_contribution_bar(
             )
         ]
     )
+    if len(subgraphs) <= top_n:
+        title = f"{len(subgraphs)} Subgraph Contribution"
+    else:
+        title = f"Top {top_n} Subgraph Contribution"
     fig.update_layout(
-        title="Top 40 Subgraph Contribution",
+        title=title,
         xaxis_title="Subgraph",
         yaxis_title=yaxis_title,
         margin={
@@ -134,35 +142,77 @@ def count_bar(
     return fig
 
 
-def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -> go.Figure:
+# A qualitative palette distinct enough to stay readable at ~35% link opacity against a white
+# background. Deterministic assignment (sorted labels -> palette index) so the same category
+# gets the same color across renders/filters.
+_SUBJECT_PALETTE = [
+    "#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c",
+    "#0891b2", "#db2777", "#65a30d", "#9333ea", "#0d9488",
+    "#c2410c", "#4338ca", "#be123c", "#15803d", "#a16207",
+]
+_NODE_DEFAULT_COLOR = "#64748b"  # predicate/object nodes: neutral slate, not competing with links
+_LINK_ALPHA = 0.35
+ 
+ 
+def _assign_palette(labels: list[str]) -> dict[str, str]:
+    return {label: _SUBJECT_PALETTE[i % len(_SUBJECT_PALETTE)] for i, label in enumerate(labels)}
+ 
+ 
+def _with_alpha(hex_color: str, alpha: float) -> str:
+    r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = None) -> go.Figure:
     selected_edges = _select_sankey_edges(edges, top_n=top_n)
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
 
+    # Every triple's two link segments (subject->predicate, predicate->object) share one
+    # color, keyed off the *subject* category — this is what lets a viewer visually trace a
+    # single subject's flows all the way through the predicate column to its objects
+    subject_categories = sorted({subject for subject, _, _, _ in collapsed})
+    subject_color = _assign_palette(subject_categories)
+ 
+    node_colors = [_NODE_DEFAULT_COLOR] * len(labels)
+    for subject in subject_categories:
+        node_colors[index[f"Subject: {subject}"]] = subject_color[subject]
+
+
     sources: list[int] = []
     targets: list[int] = []
     values: list[int] = []
+    link_colors: list[str] = []
 
     for subject, predicate, obj, count in collapsed:
         subject_label = f"Subject: {subject}"
         predicate_label = f"Predicate: {predicate}"
         object_label = f"Object: {obj}"
+        color = _with_alpha(subject_color[subject], _LINK_ALPHA)
         sources.extend([index[subject_label], index[predicate_label]])
         targets.extend([index[predicate_label], index[object_label]])
         values.extend([count, count])
+        link_colors.extend([color, color])
 
     fig = go.Figure(
         data=[
             go.Sankey(
-                node={"label": labels, "pad": 16, "thickness": 16},
-                link={"source": sources, "target": targets, "value": values},
+                node={
+                    "label": labels,
+                    "color": node_colors,
+                    "pad": 16,
+                    "thickness": 16,
+                    "line": {"color": "rgba(15, 23, 42, 0.25)", "width": 0.5},
+                },
+                link={"source": sources, "target": targets, "value": values, "color": link_colors},
             )
         ]
     )
     fig.update_layout(
         title=_sankey_title(edges, top_n=top_n),
         height=_sankey_height(labels),
+        font={"size": 12},
         margin={"l": 24, "r": 24, "t": 56, "b": 24},
     )
     return fig
@@ -180,9 +230,10 @@ def _select_sankey_edges(
 
 
 def _sankey_title(edges: tuple[EdgeTriple, ...], *, top_n: int | None) -> str:
-    if top_n is None or top_n < 0:
+    if top_n is None or top_n < 0 or len(edges) <= top_n:
         return "All Subject-Predicate-Object Flows"
-    return f"Top {min(top_n, len(edges))} Subject-Predicate-Object Flows"
+    
+    return f"Top {top_n} Subject-Predicate-Object Flows"
 
 
 def _sankey_height(labels: list[str]) -> int:

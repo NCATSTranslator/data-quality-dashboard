@@ -419,10 +419,6 @@ def register_callbacks(
             className="content-card",
             children=[
                 html.H3("Node Categories"),
-                html.P(
-                    "Top node category counts from schema metadata.",
-                    className="status-line",
-                ),
                 dcc.Graph(figure=node_category_bar(parsed.schema.nodes)),
             ],
         )
@@ -470,7 +466,7 @@ def register_callbacks(
             )
         return (
             dcc.Graph(
-                figure=predicate_sankey(parsed.schema.edges, top_n=None),
+                figure=predicate_sankey(parsed.schema.edges, top_n=40),
                 className="inline-sankey-graph",
                 config={"responsive": True},
             ),
