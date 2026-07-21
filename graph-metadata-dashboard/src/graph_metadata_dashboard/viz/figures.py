@@ -4,7 +4,12 @@ from collections import defaultdict
 
 import plotly.graph_objects as go
 
-from graph_metadata_dashboard.parsers.models import EdgeTriple, NodeCategory, SubgraphSource
+from graph_metadata_dashboard.parsers.models import (
+    EdgeTriple,
+    KnowledgeSourcePredicateCount,
+    NodeCategory,
+    SubgraphSource,
+)
 
 OTHER_LABEL = "Other"
 MAX_AXIS_LABEL_LENGTH = 30
@@ -152,26 +157,32 @@ _SUBJECT_PALETTE = [
 ]
 _NODE_DEFAULT_COLOR = "#64748b"  # predicate/object nodes: neutral slate, not competing with links
 _LINK_ALPHA = 0.35
- 
- 
+
+
 def _assign_palette(labels: list[str]) -> dict[str, str]:
     return {label: _SUBJECT_PALETTE[i % len(_SUBJECT_PALETTE)] for i, label in enumerate(labels)}
- 
- 
+
+
 def _with_alpha(hex_color: str, alpha: float) -> str:
     r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
-def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -> go.Figure:
+def predicate_sankey(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int | None = 40,
+    subject_filter: str | None = None,
+) -> go.Figure:
     # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
     # category's color is stable regardless of top_n or any future category filter
     all_subject_categories = sorted({
         ", ".join(edge.subject_category) or OTHER_LABEL for edge in edges
     })
     subject_color = _assign_palette(all_subject_categories)
-    
-    selected_edges = _select_sankey_edges(edges, top_n=top_n)
+
+    candidate_edges = _filter_edges_by_subject(edges, subject_filter=subject_filter)
+    selected_edges = _select_sankey_edges(candidate_edges, top_n=top_n)
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
@@ -189,38 +200,167 @@ def predicate_sankey(edges: tuple[EdgeTriple, ...], *, top_n: int | None = 40) -
     targets: list[int] = []
     values: list[int] = []
     link_colors: list[str] = []
+    link_customdata: list[list[str]] = []
+    node_totals: defaultdict[str, int] = defaultdict(int)
 
     for subject, predicate, obj, count in collapsed:
         subject_label = f"Subject: {subject}"
         predicate_label = f"Predicate: {predicate}"
         object_label = f"Object: {obj}"
         color = _with_alpha(subject_color[subject], _LINK_ALPHA)
+        path = f"{subject} -[{predicate}]-> {obj}"
         sources.extend([index[subject_label], index[predicate_label]])
         targets.extend([index[predicate_label], index[object_label]])
         values.extend([count, count])
         link_colors.extend([color, color])
+        link_customdata.extend([[path, f"{count:,}"], [path, f"{count:,}"]])
+        node_totals[subject_label] += count
+        node_totals[predicate_label] += count
+        node_totals[object_label] += count
+
+    node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
 
     fig = go.Figure(
         data=[
             go.Sankey(
                 node={
                     "label": labels,
+                    "customdata": node_customdata,
+                    "hovertemplate": (
+                        "%{customdata[0]}"
+                        "<br>%{customdata[1]} edges (of the flows shown)"
+                        "<extra></extra>"
+                    ),
                     "color": node_colors,
                     "pad": 16,
                     "thickness": 16,
                     "line": {"color": "rgba(15, 23, 42, 0.25)", "width": 0.5},
                 },
-                link={"source": sources, "target": targets, "value": values, "color": link_colors},
+                link={
+                    "source": sources,
+                    "target": targets,
+                    "value": values,
+                    "color": link_colors,
+                    "customdata": link_customdata,
+                    "hovertemplate": (
+                        "%{customdata[0]}: %{customdata[1]} edges"
+                        "<br>(of the flows shown)"
+                        "<extra></extra>"
+                    ),
+                },
             )
         ]
     )
+    title = _sankey_title(
+        candidate_edges,
+        selected_edges,
+        top_n=top_n,
+        subject_filter=subject_filter,
+    )
     fig.update_layout(
-        title=_sankey_title(edges, top_n=top_n),
+        title=title,
         height=_sankey_height(labels),
         font={"size": 12},
         margin={"l": 24, "r": 24, "t": 56, "b": 24},
     )
     return fig
+
+
+def knowledge_source_predicate_sankey(
+    counts: tuple[KnowledgeSourcePredicateCount, ...],
+    *,
+    top_n_sources: int | None = 25,
+    top_n_predicates: int | None = 25,
+) -> go.Figure:
+    source_color = _assign_palette(sorted({count.source for count in counts}))
+    collapsed = _collapse_source_predicate_counts(
+        counts,
+        top_n_sources=top_n_sources,
+        top_n_predicates=top_n_predicates,
+    )
+    labels = _source_predicate_labels(collapsed)
+    index = {label: position for position, label in enumerate(labels)}
+
+    sources: list[int] = []
+    targets: list[int] = []
+    values: list[int] = []
+    link_colors: list[str] = []
+    link_customdata: list[list[str]] = []
+    node_totals: defaultdict[str, int] = defaultdict(int)
+
+    for source, predicate, count in collapsed:
+        source_label = f"Source: {source}"
+        predicate_label = f"Predicate: {predicate}"
+        color = source_color.get(source, _NODE_DEFAULT_COLOR)
+        sources.append(index[source_label])
+        targets.append(index[predicate_label])
+        values.append(count)
+        link_colors.append(_with_alpha(color, _LINK_ALPHA))
+        link_customdata.append([source, predicate, f"{count:,}"])
+        node_totals[source_label] += count
+        node_totals[predicate_label] += count
+
+    node_colors = []
+    for label in labels:
+        if label.startswith("Source: "):
+            source = label.removeprefix("Source: ")
+            node_colors.append(source_color.get(source, _NODE_DEFAULT_COLOR))
+        else:
+            node_colors.append(_NODE_DEFAULT_COLOR)
+    node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
+
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node={
+                    "label": labels,
+                    "customdata": node_customdata,
+                    "hovertemplate": (
+                        "%{customdata[0]}"
+                        "<br>%{customdata[1]} edges (of the flows shown)"
+                        "<extra></extra>"
+                    ),
+                    "color": node_colors,
+                    "pad": 16,
+                    "thickness": 16,
+                    "line": {"color": "rgba(15, 23, 42, 0.25)", "width": 0.5},
+                },
+                link={
+                    "source": sources,
+                    "target": targets,
+                    "value": values,
+                    "color": link_colors,
+                    "customdata": link_customdata,
+                    "hovertemplate": (
+                        "%{customdata[0]} -> %{customdata[1]}: %{customdata[2]} edges"
+                        "<br>(of the flows shown)"
+                        "<extra></extra>"
+                    ),
+                },
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Knowledge Source to Predicate Flows",
+        height=_sankey_height(labels),
+        font={"size": 12},
+        margin={"l": 24, "r": 24, "t": 56, "b": 24},
+    )
+    return fig
+
+
+def _filter_edges_by_subject(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    subject_filter: str | None,
+) -> tuple[EdgeTriple, ...]:
+    if subject_filter is None:
+        return edges
+    return tuple(
+        edge
+        for edge in edges
+        if (", ".join(edge.subject_category) or OTHER_LABEL) == subject_filter
+    )
 
 
 def _select_sankey_edges(
@@ -234,15 +374,68 @@ def _select_sankey_edges(
     return sorted_edges[:top_n]
 
 
-def _sankey_title(edges: tuple[EdgeTriple, ...], *, top_n: int | None) -> str:
-    if top_n is None or top_n < 0 or len(edges) <= top_n:
+def _sankey_title(
+    candidate_edges: tuple[EdgeTriple, ...],
+    selected_edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int | None,
+    subject_filter: str | None,
+) -> str:
+    if subject_filter is not None:
+        relationship_count = len(candidate_edges)
+        if len(selected_edges) < relationship_count:
+            return (
+                f"Showing: {subject_filter} "
+                f"(top {len(selected_edges)} of {relationship_count} relationship types)"
+            )
+        return f"Showing: {subject_filter} ({relationship_count} relationship types)"
+
+    if top_n is None or top_n < 0 or len(candidate_edges) <= top_n:
         return "All Subject-Predicate-Object Flows"
-    
+
     return f"Top {top_n} Subject-Predicate-Object Flows"
 
 
 def _sankey_height(labels: list[str]) -> int:
     return min(SANKEY_MAX_HEIGHT, max(SANKEY_BASE_HEIGHT, len(labels) * SANKEY_PIXELS_PER_NODE))
+
+
+def _collapse_source_predicate_counts(
+    counts: tuple[KnowledgeSourcePredicateCount, ...],
+    *,
+    top_n_sources: int | None,
+    top_n_predicates: int | None,
+) -> list[tuple[str, str, int]]:
+    source_totals: defaultdict[str, int] = defaultdict(int)
+    predicate_totals: defaultdict[str, int] = defaultdict(int)
+    for count in counts:
+        source_totals[count.source] += count.count
+        predicate_totals[count.predicate] += count.count
+
+    selected_sources = _top_labels(source_totals, top_n=top_n_sources)
+    selected_predicates = _top_labels(predicate_totals, top_n=top_n_predicates)
+    collapsed: defaultdict[tuple[str, str], int] = defaultdict(int)
+    for count in counts:
+        source = count.source if count.source in selected_sources else OTHER_LABEL
+        predicate = count.predicate if count.predicate in selected_predicates else OTHER_LABEL
+        collapsed[(source, predicate)] += count.count
+
+    return [
+        (source, predicate, count)
+        for (source, predicate), count in sorted(
+            collapsed.items(),
+            key=lambda item: (item[0][0] == OTHER_LABEL, -item[1], item[0][0], item[0][1]),
+        )
+    ]
+
+
+def _top_labels(counts: dict[str, int], *, top_n: int | None) -> set[str]:
+    if top_n is None or top_n < 0:
+        return set(counts)
+    return {
+        label
+        for label, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:top_n]
+    }
 
 
 def _collapse_edges(
@@ -254,6 +447,17 @@ def _collapse_edges(
         obj = ", ".join(edge.object_category) or OTHER_LABEL
         counts[(subject, edge.predicate, obj)] += edge.count
     return [(subject, predicate, obj, count) for (subject, predicate, obj), count in counts.items()]
+
+
+def _source_predicate_labels(edges: list[tuple[str, str, int]]) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for source, predicate, _ in edges:
+        for label in (f"Source: {source}", f"Predicate: {predicate}"):
+            if label not in seen:
+                seen.add(label)
+                labels.append(label)
+    return labels
 
 
 def _sankey_labels(edges: list[tuple[str, str, str, int]]) -> list[str]:

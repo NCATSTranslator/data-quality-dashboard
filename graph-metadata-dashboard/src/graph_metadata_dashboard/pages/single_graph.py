@@ -29,20 +29,24 @@ from graph_metadata_dashboard.loaders.kgx_storage import (
 )
 from graph_metadata_dashboard.loaders.uploaded import UploadedMetadata, decode_dash_upload
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
-from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
+from graph_metadata_dashboard.parsers.models import EdgeTriple, ParsedGraphMetadata
 from graph_metadata_dashboard.viz.figures import (
+    knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
 )
 
 GraphState = dict[str, Any]
 LoadGraphResult = tuple[object, object, object, object, object, object, object]
+ALL_SUBJECT_CATEGORIES_VALUE = "__all_categories__"
 
 
 def layout() -> html.Div:
     return html.Div(
         children=[
             dcc.Store(id="loaded-graph-state", storage_type="session"),
+            dcc.Store(id="source-predicate-sankey-visible"),
+            dcc.Store(id="subject-sankey-visible"),
             html.Section(
                 className="hero",
                 children=[
@@ -158,28 +162,65 @@ def layout() -> html.Div:
                         className="content-card",
                         style={"display": "none"},
                         children=[
+                            html.H3("Predicate / Edge Composition"),
+                            html.P(
+                                "Sankey charts are loaded on request because merged graphs can "
+                                "contain many source, predicate, and category combinations.",
+                                className="status-line",
+                            ),
                             html.Div(
-                                className="section-heading-row",
+                                className="sankey-control-grid",
                                 children=[
                                     html.Div(
+                                        className="sankey-control-block",
                                         children=[
-                                            html.H3("Predicate / Edge Composition"),
+                                            html.H4("Knowledge Source to Predicate"),
                                             html.P(
-                                                "Sankey chart built from schema "
-                                                "edge triples and loaded on request. "
-                                                "Click the button to see the Sankey chart.",
+                                                "A two-column orientation chart using "
+                                                "pre-aggregated schema summary counts.",
                                                 className="status-line",
                                             ),
-                                        ]
+                                            html.Button(
+                                                "Show source-predicate Sankey",
+                                                id="show-source-predicate-sankey",
+                                                n_clicks=0,
+                                                type="button",
+                                                className="button button-secondary",
+                                            ),
+                                        ],
                                     ),
-                                    html.Button(
-                                        "Show Sankey chart",
-                                        id="show-sankey",
-                                        n_clicks=0,
-                                        type="button",
-                                        className="button button-secondary",
+                                    html.Div(
+                                        className="sankey-control-block",
+                                        children=[
+                                            html.H4("Subject Category to Predicate to Object"),
+                                            html.P(
+                                                "A category-scoped three-column chart. Choose "
+                                                "one subject category, or explicitly request "
+                                                "the all-category top-40 view.",
+                                                className="status-line",
+                                            ),
+                                            dcc.Dropdown(
+                                                id="sankey-subject-category-dropdown",
+                                                placeholder="Select subject category",
+                                                clearable=False,
+                                            ),
+                                            html.Button(
+                                                "Show category Sankey",
+                                                id="show-sankey",
+                                                n_clicks=0,
+                                                type="button",
+                                                className="button button-secondary sankey-button",
+                                            ),
+                                        ],
                                     ),
                                 ],
+                            ),
+                            dcc.Loading(
+                                html.Div(
+                                    id="source-predicate-panel-body",
+                                    className="sankey-scroll-panel",
+                                ),
+                                parent_className="sankey-loading",
                             ),
                             dcc.Loading(
                                 html.Div(
@@ -431,46 +472,130 @@ def register_callbacks(
         return {} if len(_normalize_graph_states(graph_states)) == 1 else {"display": "none"}
 
     @app.callback(
+        Output("sankey-subject-category-dropdown", "options"),
+        Output("sankey-subject-category-dropdown", "value"),
+        Output("sankey-subject-category-dropdown", "disabled"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def configure_sankey_subject_dropdown(
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[list[dict[str, str]], str | None, bool]:
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return [], None, True
+        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        if parsed.schema is None or not parsed.schema.edges:
+            return [], None, True
+
+        options = _subject_category_options(parsed.schema.edges)
+        default_value = options[1]["value"] if len(options) > 1 else ALL_SUBJECT_CATEGORIES_VALUE
+        return options, default_value, False
+
+    @app.callback(
+        Output("source-predicate-sankey-visible", "data"),
+        Output("source-predicate-panel-body", "children"),
+        Output("show-source-predicate-sankey", "disabled"),
+        Output("show-source-predicate-sankey", "children"),
+        Input("show-source-predicate-sankey", "n_clicks"),
+        Input("loaded-graph-state", "data"),
+        State("source-predicate-sankey-visible", "data"),
+        State("session-id", "data"),
+    )
+    def render_source_predicate_sankey_panel(
+        show_clicks: int | None,
+        graph_states: list[GraphState] | GraphState | None,
+        visible: bool | None,
+        session_id: str | None,
+    ) -> tuple[bool, Any, bool, str]:
+        if callback_context.triggered_id == "loaded-graph-state":
+            return False, "", False, "Show source-predicate Sankey"
+        visible = bool(visible)
+        if callback_context.triggered_id == "show-source-predicate-sankey" and show_clicks:
+            visible = not visible
+        if not visible:
+            return False, "", False, "Show source-predicate Sankey"
+
+        parsed = _single_cached_graph_with_schema(cache, kgx_client, session_id, graph_states)
+        if parsed is None or parsed.schema is None:
+            return visible, _sankey_unavailable_message(), False, "Hide source-predicate Sankey"
+        if not parsed.schema.source_predicate_counts:
+            return (
+                visible,
+                _source_predicate_unavailable_message(),
+                False,
+                "Hide source-predicate Sankey",
+            )
+        return (
+            True,
+            dcc.Graph(
+                figure=knowledge_source_predicate_sankey(parsed.schema.source_predicate_counts),
+                className="inline-sankey-graph",
+                config={"responsive": True},
+            ),
+            False,
+            "Hide source-predicate Sankey",
+        )
+
+    @app.callback(
+        Output("subject-sankey-visible", "data"),
         Output("sankey-panel-body", "children"),
         Output("show-sankey", "disabled"),
         Input("show-sankey", "n_clicks"),
+        Input("sankey-subject-category-dropdown", "value"),
         Input("loaded-graph-state", "data"),
+        State("subject-sankey-visible", "data"),
         State("session-id", "data"),
     )
     def render_sankey_panel(
         show_clicks: int | None,
+        selected_subject: str | None,
         graph_states: list[GraphState] | GraphState | None,
+        visible: bool | None,
         session_id: str | None,
-    ) -> tuple[Any, bool]:
-        if callback_context.triggered_id != "show-sankey" or not show_clicks:
-            return "", False
+    ) -> tuple[bool, Any, bool]:
+        if callback_context.triggered_id == "loaded-graph-state":
+            return False, "", False
+        visible = bool(visible)
+        if callback_context.triggered_id == "show-sankey" and show_clicks:
+            visible = True
+        if not visible:
+            return False, "", False
 
-        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
-        parsed = _get_cached_graph(cache, session_id, graph_state)
-        if parsed is None:
-            return "", False
-        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
-        if parsed.schema is None:
+        parsed = _single_cached_graph_with_schema(cache, kgx_client, session_id, graph_states)
+        if parsed is None or parsed.schema is None:
+            return visible, _sankey_unavailable_message(), True
+        subject_filter = (
+            None
+            if selected_subject in {None, ALL_SUBJECT_CATEGORIES_VALUE}
+            else selected_subject
+        )
+        top_n = 40
+        if subject_filter is None and selected_subject != ALL_SUBJECT_CATEGORIES_VALUE:
+            return visible, "", False
+        if not parsed.schema.edges:
             return (
+                visible,
                 html.Div(
                     className="empty-inline",
-                    children=[
-                        html.H4("Sankey unavailable"),
-                        html.P(
-                            "Schema metadata is required for the Sankey diagram, but it could "
-                            "not be loaded for this graph."
-                        ),
-                    ],
+                    children=[html.P("No schema edge triples are available for this graph.")],
                 ),
-                False,
+                True,
             )
         return (
+            True,
             dcc.Graph(
-                figure=predicate_sankey(parsed.schema.edges, top_n=40),
+                figure=predicate_sankey(
+                    parsed.schema.edges,
+                    top_n=top_n,
+                    subject_filter=subject_filter,
+                ),
                 className="inline-sankey-graph",
                 config={"responsive": True},
             ),
-            True,
+            False,
         )
 
 
@@ -625,6 +750,67 @@ def _ensure_schema_loaded(
     updated = replace(parsed, schema=schema)
     cache.set(session_id, cache_key, updated)
     return updated
+
+
+def _single_cached_graph_with_schema(
+    cache: MetadataCache,
+    kgx_client: KgxStorageClient,
+    session_id: str | None,
+    graph_states: list[GraphState] | GraphState | None,
+) -> ParsedGraphMetadata | None:
+    graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+    parsed = _get_cached_graph(cache, session_id, graph_state)
+    if parsed is None:
+        return None
+    return _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+
+
+def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, str]]:
+    totals: dict[str, int] = {}
+    for edge in edges:
+        label = _edge_subject_label(edge)
+        totals[label] = totals.get(label, 0) + edge.count
+    ordered_subjects = [
+        subject
+        for subject, _ in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    ]
+    return [
+        {
+            "label": "All categories (top 40 by volume)",
+            "value": ALL_SUBJECT_CATEGORIES_VALUE,
+        },
+        *[{"label": subject, "value": subject} for subject in ordered_subjects],
+    ]
+
+
+def _edge_subject_label(edge: EdgeTriple) -> str:
+    return ", ".join(edge.subject_category) or "Other"
+
+
+def _sankey_unavailable_message() -> html.Div:
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.H4("Sankey unavailable"),
+            html.P(
+                "Schema metadata is required for this Sankey chart, but it could not be "
+                "loaded for this graph."
+            ),
+        ],
+    )
+
+
+def _source_predicate_unavailable_message() -> html.Div:
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.H4("Source-predicate Sankey unavailable"),
+            html.P(
+                "This graph's schema metadata does not include "
+                "predicates_by_knowledge_source summary data."
+            ),
+        ],
+    )
 
 
 def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:

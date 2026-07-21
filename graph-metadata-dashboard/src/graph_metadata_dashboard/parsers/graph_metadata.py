@@ -9,6 +9,7 @@ from graph_metadata_dashboard.parsers.models import (
     GraphSchema,
     JsonObject,
     KnowledgeSource,
+    KnowledgeSourcePredicateCount,
     NodeCategory,
     ParsedGraphMetadata,
     SchemaReference,
@@ -81,6 +82,7 @@ def parse_schema(data: Mapping[str, Any] | None) -> GraphSchema | None:
     return GraphSchema(
         nodes=nodes,
         edges=edges,
+        source_predicate_counts=_parse_predicates_by_knowledge_source(edges_summary),
         nodes_summary=nodes_summary,
         edges_summary=edges_summary,
         raw=raw,
@@ -150,6 +152,32 @@ def _parse_edge_triple(entry: Mapping[str, Any]) -> EdgeTriple:
         subject_id_prefixes=_int_dict(entry.get("subject_id_prefixes")),
         object_id_prefixes=_int_dict(entry.get("object_id_prefixes")),
     )
+
+
+def _parse_predicates_by_knowledge_source(
+    edges_summary: Mapping[str, Any],
+) -> tuple[KnowledgeSourcePredicateCount, ...]:
+    value = edges_summary.get("predicates_by_knowledge_source")
+    if not isinstance(value, Mapping):
+        return ()
+
+    counts: list[KnowledgeSourcePredicateCount] = []
+    for source, predicate_counts in value.items():
+        if not isinstance(predicate_counts, Mapping):
+            continue
+        safe_source = "Unknown" if source is None else str(source)
+        for predicate, count in predicate_counts.items():
+            parsed_count = int_or_none(count)
+            if parsed_count is None:
+                continue
+            counts.append(
+                KnowledgeSourcePredicateCount(
+                    source=safe_source,
+                    predicate="Unknown" if predicate is None else str(predicate),
+                    count=parsed_count,
+                )
+            )
+    return tuple(counts)
 
 
 def _call_or_default(obj: Any, method_name: str, default: Any) -> str | list[str]:

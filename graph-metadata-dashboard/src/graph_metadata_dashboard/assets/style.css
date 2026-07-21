@@ -190,6 +190,29 @@ body {
   font-weight: 600;
 }
 
+.sankey-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.sankey-control-block {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 0.9rem;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.sankey-control-block h4 {
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.sankey-button {
+  margin-top: 0.75rem;
+}
+
 .upload-selection {
   margin: 0.75rem 0 1rem;
   color: var(--muted);
@@ -357,13 +380,18 @@ body {
   overscroll-behavior: contain;
 }
 
+.sankey-scroll-panel:empty {
+  display: none;
+}
+
 .inline-sankey-graph {
   min-width: 1120px;
 }
 
 @media (max-width: 820px) {
   .site-header,
-  .selector-grid {
+  .selector-grid,
+  .sankey-control-grid {
     grid-template-columns: 1fr;
   }
 

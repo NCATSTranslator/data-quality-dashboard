@@ -54,3 +54,38 @@ def test_parse_registry_schema_wrapper() -> None:
     assert schema.total_node_count is not None
     assert schema.total_edge_count is not None
     assert len(schema.nodes) > 0
+
+
+def test_parse_predicates_by_knowledge_source_nested_shape() -> None:
+    schema = parse_schema(
+        {
+            "edges_summary": {
+                "predicates_by_knowledge_source": {
+                    "infores:source-a": {
+                        "biolink:related_to": 12,
+                        "biolink:treats": "7",
+                    },
+                    None: {
+                        None: 3,
+                        "bad-count": "not an integer",
+                    },
+                }
+            }
+        }
+    )
+
+    assert schema is not None
+    assert schema.source_predicate_counts[0].source == "infores:source-a"
+    assert schema.source_predicate_counts[0].predicate == "biolink:related_to"
+    assert schema.source_predicate_counts[0].count == 12
+    assert schema.source_predicate_counts[1].count == 7
+    assert schema.source_predicate_counts[2].source == "Unknown"
+    assert schema.source_predicate_counts[2].predicate == "Unknown"
+    assert len(schema.source_predicate_counts) == 3
+
+
+def test_parse_missing_predicates_by_knowledge_source_as_absent() -> None:
+    schema = parse_schema({"edges_summary": {}})
+
+    assert schema is not None
+    assert schema.source_predicate_counts == ()

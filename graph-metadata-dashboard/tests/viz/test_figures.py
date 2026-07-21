@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
+from graph_metadata_dashboard.parsers.models import KnowledgeSourcePredicateCount
 from graph_metadata_dashboard.viz.figures import (
     count_bar,
+    knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
     subgraph_contribution_bar,
@@ -27,6 +29,8 @@ def test_predicate_sankey_builds_limited_flows() -> None:
 
     assert len(figure.data) == 1
     assert len(figure.data[0].link.value) <= 6
+    assert "of the flows shown" in figure.data[0].node.hovertemplate
+    assert "of the flows shown" in figure.data[0].link.hovertemplate
 
 
 def test_predicate_sankey_can_render_all_flows() -> None:
@@ -41,6 +45,43 @@ def test_predicate_sankey_can_render_all_flows() -> None:
     assert len(negative_unfiltered.data[0].link.value) == len(unfiltered.data[0].link.value)
     assert str(unfiltered.layout.title.text).startswith("All ")
     assert unfiltered.layout.height >= 700
+
+
+def test_predicate_sankey_can_scope_to_subject_category() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+    subject = ", ".join(parsed.schema.edges[0].subject_category)
+
+    figure = predicate_sankey(parsed.schema.edges, subject_filter=subject, top_n=40)
+
+    assert str(figure.layout.title.text).startswith(f"Showing: {subject}")
+    assert all(
+        str(label).startswith((f"Subject: {subject}", "Predicate: ", "Object: "))
+        for label in figure.data[0].node.label
+    )
+
+
+def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
+    counts = tuple(
+        KnowledgeSourcePredicateCount(
+            source=f"infores:source-{index}",
+            predicate=f"biolink:predicate-{index}",
+            count=100 - index,
+        )
+        for index in range(5)
+    )
+
+    figure = knowledge_source_predicate_sankey(
+        counts,
+        top_n_sources=2,
+        top_n_predicates=2,
+    )
+
+    labels = list(figure.data[0].node.label)
+    assert "Source: Other" in labels
+    assert "Predicate: Other" in labels
+    assert "of the flows shown" in figure.data[0].node.hovertemplate
+    assert "of the flows shown" in figure.data[0].link.hovertemplate
 
 
 def test_count_bar_limits_top_n() -> None:

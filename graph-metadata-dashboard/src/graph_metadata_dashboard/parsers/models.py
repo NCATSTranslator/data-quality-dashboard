@@ -53,9 +53,17 @@ class EdgeTriple:
 
 
 @dataclass(frozen=True)
+class KnowledgeSourcePredicateCount:
+    source: str
+    predicate: str
+    count: int
+
+
+@dataclass(frozen=True)
 class GraphSchema:
     nodes: tuple[NodeCategory, ...]
     edges: tuple[EdgeTriple, ...]
+    source_predicate_counts: tuple[KnowledgeSourcePredicateCount, ...]
     nodes_summary: JsonObject
     edges_summary: JsonObject
     raw: JsonObject
