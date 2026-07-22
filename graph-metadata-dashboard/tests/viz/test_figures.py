@@ -8,6 +8,8 @@ from graph_metadata_dashboard.viz.figures import (
     node_category_bar,
     predicate_sankey,
     subgraph_contribution_bar,
+    SANKEY_BASE_HEIGHT,
+    SANKEY_DEFAULT_NODE_PAD
 )
 from tests.conftest import load_fixture
 
@@ -52,10 +54,11 @@ def test_predicate_sankey_can_scope_to_subject_category() -> None:
 
     figure = predicate_sankey(parsed.schema.edges, subject_filter=subject, top_n=40)
 
-    assert all(
-        str(label).startswith((f"Subject: {subject}", "Predicate: ", "Object: "))
-        for label in figure.data[0].node.label
-    )
+    labels = [str(label) for label in figure.data[0].node.label]
+    hover_labels = [str(customdata[0]) for customdata in figure.data[0].node.customdata]
+    assert any(label == subject for label in labels)
+    assert all(not label.startswith(("Subject: ", "Predicate: ", "Object: ")) for label in labels)
+    assert any(label.startswith(f"Subject: {subject}") for label in hover_labels)
 
 
 def test_predicate_sankey_keeps_all_category_cap_but_allows_filtered_relationships() -> None:
@@ -79,7 +82,32 @@ def test_predicate_sankey_keeps_all_category_cap_but_allows_filtered_relationshi
 
     assert len(unfiltered.data[0].link.value) == 80
     assert len(filtered.data[0].link.value) == 100
+
+
+def test_predicate_sankey_uses_consistent_all_category_compression() -> None:
+    edges = tuple(
+        EdgeTriple(
+            subject_category=(f"biolink:Subject{index % 5}",),
+            predicate=f"biolink:predicate_{index}",
+            object_category=(f"biolink:Object{index}",),
+            count=100_000_000 if index == 0 else max(12, 10_000 - index),
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        )
+        for index in range(100)
+    )
+
+    default_view = predicate_sankey(edges)
+    expanded_view = predicate_sankey(edges, top_n=100)
     
+    assert max(default_view.data[0].link.value) < 100_000_000
+    assert max(expanded_view.data[0].link.value) < 100_000_000
+    assert round(max(expanded_view.data[0].link.value), 1) == 464.2
+    assert expanded_view.data[0].link.customdata[0][1] == "100,000,000"
+
 
 def test_knowledge_source_predicate_sankey_default_caps_show_robokop_sized_vocab() -> None:
     counts = tuple(
@@ -94,8 +122,68 @@ def test_knowledge_source_predicate_sankey_default_caps_show_robokop_sized_vocab
     figure = knowledge_source_predicate_sankey(counts)
 
     labels = list(figure.data[0].node.label)
-    assert "Source: Other" not in labels
-    assert "Predicate: Other" not in labels
+    hover_labels = [customdata[0] for customdata in figure.data[0].node.customdata]
+    assert "Source: Other" not in hover_labels
+    assert "Predicate: Other" not in hover_labels
+    assert all(not str(label).startswith(("Source: ", "Predicate: ")) for label in labels)
+    assert figure.layout.height > 2000
+    assert figure.data[0].node.pad == 8
+
+
+def test_knowledge_source_predicate_sankey_keeps_room_for_smaller_graphs() -> None:
+    counts = tuple(
+        KnowledgeSourcePredicateCount(
+            source=f"infores:source-{index}",
+            predicate=f"biolink:predicate-{index}",
+            count=100 - index,
+        )
+        for index in range(6)
+    )
+
+    figure = knowledge_source_predicate_sankey(counts)
+
+    assert figure.layout.height == SANKEY_BASE_HEIGHT
+    assert figure.data[0].node.pad == SANKEY_DEFAULT_NODE_PAD
+
+
+def test_knowledge_source_predicate_sankey_compresses_skewed_link_widths() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount(
+            source="infores:ubergraph",
+            predicate="biolink:related_to",
+            count=100_000_000,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:next-source",
+            predicate="biolink:treats",
+            count=1_000_000,
+        ),
+    )
+
+    figure = knowledge_source_predicate_sankey(counts)
+
+    assert list(figure.data[0].link.value) == [10_000.0, 1_000.0]
+    assert figure.data[0].link.customdata[0][2] == "100,000,000"
+
+
+def test_knowledge_source_predicate_sankey_uses_stronger_compression_for_tiny_flows() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount(
+            source="infores:ubergraph",
+            predicate="biolink:related_to",
+            count=100_000_000,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:tiny-source",
+            predicate="biolink:contributes_to",
+            count=16,
+        ),
+    )
+
+    figure = knowledge_source_predicate_sankey(counts)
+
+    assert list(figure.data[0].link.value) == [100.0, 2.0]
+    assert figure.data[0].link.customdata[1][2] == "16"
 
 
 def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
@@ -115,8 +203,10 @@ def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
     )
 
     labels = list(figure.data[0].node.label)
-    assert "Source: Other" in labels
-    assert "Predicate: Other" in labels
+    hover_labels = [customdata[0] for customdata in figure.data[0].node.customdata]
+    assert "Other" in labels
+    assert "Source: Other" in hover_labels
+    assert "Predicate: Other" in hover_labels
 
 
 def test_count_bar_limits_top_n() -> None:

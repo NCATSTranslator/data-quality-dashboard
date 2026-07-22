@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from math import sqrt
 
 import plotly.graph_objects as go
 
@@ -17,6 +18,16 @@ MIN_SHARED_PREFIX_LENGTH = 16
 SANKEY_BASE_HEIGHT = 700
 SANKEY_PIXELS_PER_NODE = 14
 SANKEY_MAX_HEIGHT = 4200
+SOURCE_PREDICATE_NODE_BODY_PIXELS = 24
+SOURCE_PREDICATE_HEIGHT_PADDING = 120
+SANKEY_DEFAULT_NODE_PAD = 16
+SANKEY_MEDIUM_NODE_PAD = 12
+SANKEY_DENSE_NODE_PAD = 8
+SANKEY_VERY_DENSE_NODE_PAD = 6
+SOURCE_PREDICATE_COMPRESSION_RATIO = 25
+SOURCE_PREDICATE_STRONG_COMPRESSION_RATIO = 1_000
+PREDICATE_SANKEY_COMPRESSION_RATIO = 25
+PREDICATE_SANKEY_STRONG_COMPRESSION_RATIO = 1_000
 
 
 def node_category_bar(
@@ -198,10 +209,14 @@ def predicate_sankey(
 
     sources: list[int] = []
     targets: list[int] = []
-    values: list[int] = []
+    values: list[float] = []
     link_colors: list[str] = []
     link_customdata: list[list[str]] = []
     node_totals: defaultdict[str, int] = defaultdict(int)
+    value_transform = _predicate_sankey_value_transform(
+        candidate_edges,
+        subject_filter=subject_filter,
+    )
 
     for subject, predicate, obj, count in collapsed:
         subject_label = f"Subject: {subject}"
@@ -209,22 +224,26 @@ def predicate_sankey(
         object_label = f"Object: {obj}"
         color = _with_alpha(subject_color[subject], _LINK_ALPHA)
         path = f"{subject} -[{predicate}]-> {obj}"
+        display_count = _display_count_value(count, value_transform)
         sources.extend([index[subject_label], index[predicate_label]])
         targets.extend([index[predicate_label], index[object_label]])
-        values.extend([count, count])
+        values.extend([display_count, display_count])
         link_colors.extend([color, color])
         link_customdata.extend([[path, f"{count:,}"], [path, f"{count:,}"]])
         node_totals[subject_label] += count
         node_totals[predicate_label] += count
         node_totals[object_label] += count
 
+    node_display_labels = [_sankey_display_label(label) for label in labels]
     node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
+    max_column_nodes = _predicate_sankey_max_column_nodes(collapsed)
+    node_pad = _sankey_node_pad(max_column_nodes)
 
     fig = go.Figure(
         data=[
             go.Sankey(
                 node={
-                    "label": labels,
+                    "label": node_display_labels,
                     "customdata": node_customdata,
                     "hovertemplate": (
                         "%{customdata[0]}"
@@ -232,7 +251,7 @@ def predicate_sankey(
                         "<extra></extra>"
                     ),
                     "color": node_colors,
-                    "pad": 16,
+                    "pad": node_pad,
                     "thickness": 16,
                     "line": {"color": "rgba(15, 23, 42, 0.25)", "width": 0.5},
                 },
@@ -258,7 +277,7 @@ def predicate_sankey(
     )
     fig.update_layout(
         title=title,
-        height=_sankey_height(labels),
+        height=_columnar_sankey_height(max_column_nodes, node_pad),
         font={"size": 12},
         margin={"l": 24, "r": 24, "t": 56, "b": 24},
     )
@@ -282,10 +301,11 @@ def knowledge_source_predicate_sankey(
 
     sources: list[int] = []
     targets: list[int] = []
-    values: list[int] = []
+    values: list[float] = []
     link_colors: list[str] = []
     link_customdata: list[list[str]] = []
     node_totals: defaultdict[str, int] = defaultdict(int)
+    value_transform = _source_predicate_value_transform(collapsed)
 
     for source, predicate, count in collapsed:
         source_label = f"Source: {source}"
@@ -293,12 +313,13 @@ def knowledge_source_predicate_sankey(
         color = source_color.get(source, _NODE_DEFAULT_COLOR)
         sources.append(index[source_label])
         targets.append(index[predicate_label])
-        values.append(count)
+        values.append(_display_count_value(count, value_transform))
         link_colors.append(_with_alpha(color, _LINK_ALPHA))
         link_customdata.append([source, predicate, f"{count:,}"])
         node_totals[source_label] += count
         node_totals[predicate_label] += count
 
+    node_display_labels = [_sankey_display_label(label) for label in labels]
     node_colors = []
     for label in labels:
         if label.startswith("Source: "):
@@ -307,12 +328,14 @@ def knowledge_source_predicate_sankey(
         else:
             node_colors.append(_NODE_DEFAULT_COLOR)
     node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
+    max_column_nodes = _source_predicate_max_column_nodes(collapsed)
+    node_pad = _sankey_node_pad(max_column_nodes)
 
     fig = go.Figure(
         data=[
             go.Sankey(
                 node={
-                    "label": labels,
+                    "label": node_display_labels,
                     "customdata": node_customdata,
                     "hovertemplate": (
                         "%{customdata[0]}"
@@ -320,8 +343,8 @@ def knowledge_source_predicate_sankey(
                         "<extra></extra>"
                     ),
                     "color": node_colors,
-                    "pad": 16,
-                    "thickness": 16,
+                    "pad": node_pad,
+                    "thickness": 18,
                     "line": {"color": "rgba(15, 23, 42, 0.25)", "width": 0.5},
                 },
                 link={
@@ -335,12 +358,13 @@ def knowledge_source_predicate_sankey(
                         "<extra></extra>"
                     ),
                 },
+                arrangement="snap",
             )
         ]
     )
     fig.update_layout(
-        title="Knowledge Source to Predicate Flows",
-        height=_sankey_height(labels),
+        title="Knowledge Source to Predicate Sankey Chart",
+        height=_columnar_sankey_height(max_column_nodes, node_pad),
         font={"size": 12},
         margin={"l": 24, "r": 24, "t": 56, "b": 24},
     )
@@ -390,13 +414,105 @@ def _sankey_title(
         " subject category"
 
     if top_n is None or top_n < 0 or len(candidate_edges) <= top_n:
-        return "All Subject-Predicate-Object Relationship Triples"
+        return "All Subject-Predicate-Object Relationship Triple Sankey Chart"
 
-    return f"Top {top_n} Subject-Predicate-Object Relationship Triples"
+    return f"Top {top_n} Subject-Predicate-Object Relationship Triple Sankey Chart"
 
 
 def _sankey_height(labels: list[str]) -> int:
     return min(SANKEY_MAX_HEIGHT, max(SANKEY_BASE_HEIGHT, len(labels) * SANKEY_PIXELS_PER_NODE))
+
+
+def _predicate_sankey_max_column_nodes(edges: list[tuple[str, str, str, int]]) -> int:
+    subjects = {subject for subject, _, _, _ in edges}
+    predicates = {predicate for _, predicate, _, _ in edges}
+    objects = {obj for _, _, obj, _ in edges}
+    return max(len(subjects), len(predicates), len(objects), 1)
+
+
+def _source_predicate_max_column_nodes(edges: list[tuple[str, str, int]]) -> int:
+    sources = {source for source, _, _ in edges}
+    predicates = {predicate for _, predicate, _ in edges}
+    return max(len(sources), len(predicates), 1)
+
+
+def _sankey_node_pad(max_column_nodes: int) -> int:
+    if max_column_nodes >= 100:
+        return SANKEY_VERY_DENSE_NODE_PAD
+    if max_column_nodes >= 60:
+        return SANKEY_DENSE_NODE_PAD
+    if max_column_nodes >= 30:
+        return SANKEY_MEDIUM_NODE_PAD
+    return SANKEY_DEFAULT_NODE_PAD
+
+
+def _columnar_sankey_height(max_column_nodes: int, node_pad: int) -> int:
+    column_height = (
+        max_column_nodes * (SOURCE_PREDICATE_NODE_BODY_PIXELS + node_pad)
+        + SOURCE_PREDICATE_HEIGHT_PADDING
+    )
+    return min(SANKEY_MAX_HEIGHT, max(SANKEY_BASE_HEIGHT, column_height))
+
+
+def _predicate_sankey_value_transform(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    subject_filter: str | None,
+) -> str:
+    if subject_filter is not None:
+        return "linear"
+    return _count_value_transform(
+        [edge.count for edge in edges],
+        compression_ratio=PREDICATE_SANKEY_COMPRESSION_RATIO,
+        strong_compression_ratio=PREDICATE_SANKEY_STRONG_COMPRESSION_RATIO,
+        strong_transform="cube_root",
+    )
+
+
+def _source_predicate_value_transform(edges: list[tuple[str, str, int]]) -> str:
+    return _count_value_transform(
+        [count for _, _, count in edges],
+        compression_ratio=SOURCE_PREDICATE_COMPRESSION_RATIO,
+        strong_compression_ratio=SOURCE_PREDICATE_STRONG_COMPRESSION_RATIO,
+        strong_transform="fourth_root",
+    )
+
+
+def _count_value_transform(
+    counts: list[int],
+    *,
+    compression_ratio: int,
+    strong_compression_ratio: int,
+    strong_transform: str,
+) -> str:
+    positive_counts = [count for count in counts if count > 0]
+    if not positive_counts:
+        return "linear"
+    min_count = min(positive_counts)
+    max_count = max(positive_counts)
+    count_ratio = max_count / min_count
+    if count_ratio >= strong_compression_ratio:
+        return strong_transform
+    if count_ratio >= compression_ratio:
+        return "sqrt"
+    return "linear"
+
+
+def _display_count_value(count: int, transform: str) -> float:
+    if transform == "fourth_root":
+        return max(1.0, count ** 0.25)
+    if transform == "cube_root":
+        return max(1.0, count ** (1 / 3))
+    if transform == "sqrt":
+        return max(1.0, sqrt(count))
+    return float(count)
+
+
+def _sankey_display_label(label: str) -> str:
+    for prefix in ("Source: ", "Subject: ", "Predicate: ", "Object: "):
+        if label.startswith(prefix):
+            return label.removeprefix(prefix)
+    return label
 
 
 def _collapse_source_predicate_counts(

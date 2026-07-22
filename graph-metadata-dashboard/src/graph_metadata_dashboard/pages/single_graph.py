@@ -185,7 +185,10 @@ def layout() -> html.Div:
                                             html.H4("Knowledge Source to Predicate"),
                                             html.P(
                                                 "A two-column Sankey chart showing which knowledge "
-                                                "sources contribute to each predicate type",
+                                                "sources contribute to each predicate type. Use "
+                                                "the slider for interactive filtering by how many "
+                                                "top sources and predicates to show, sorted by "
+                                                "edge count.",
                                                 className="status-line",
                                             ),
                                             html.Div(
@@ -233,7 +236,9 @@ def layout() -> html.Div:
                                                 "relationship triples within that selected "
                                                 "subject category, or select "
                                                 '"All categories"  to view relationship '
-                                                "triples across the whole graph.",
+                                                "triples across the whole graph. Use the slider "
+                                                "for interactive filtering by how many edge "
+                                                "triples to show, sorted by edge count.",
                                                 className="status-line",
                                             ),
                                             dcc.Dropdown(
@@ -974,12 +979,23 @@ def _sankey_slider_config(
 
 def _sankey_slider_marks(max_value: int, *, defaults: tuple[int, ...]) -> dict[int, str]:
     safe_max = max(1, max_value)
-    mark_values = {1, safe_max}
+    mark_values = {safe_max}
     mark_values.update(value for value in defaults if 1 <= value <= safe_max)
+    if _should_show_slider_min_mark(safe_max, mark_values):
+        mark_values.add(1)
     return {
         value: f"{value} (all)" if value == safe_max else str(value)
         for value in sorted(mark_values)
     }
+
+
+def _should_show_slider_min_mark(max_value: int, mark_values: set[int]) -> bool:
+    min_mark = 1
+    if min_mark in mark_values:
+        return True
+    # Hide the minimum label when another mark is too close to the left edge; on large
+    # sliders, labels like "1" and "40" overlap and become illegible.
+    return all((value - min_mark) / max_value >= 0.08 for value in mark_values)
 
 
 def _slider_top_n(value: int | float | None, *, default: int) -> int:
