@@ -1,8 +1,8 @@
 replicaCount: 1
 
 image:
-  repository: graph-metadata-dashboard
-  tag: "latest"
+  repository: renci/graph-metadata-dashboard
+  tag: "v1.0"
   pullPolicy: IfNotPresent
 
 service:
@@ -21,11 +21,28 @@ env:
 
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 500m
+    memory: 2Gi
+    ephemeral-storage: 1Gi
   limits:
-    cpu: 1000m
-    memory: 1Gi
+    cpu: "2"
+    memory: 6Gi
+    ephemeral-storage: 6Gi
+
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: kg-dashboard.apps.renci.org
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+   - secretName: kg-dashboard.apps.renci.org-tls
+     hosts:
+       - kg-dashboard.apps.renci.org
 
 podSecurityContext:
   runAsNonRoot: true

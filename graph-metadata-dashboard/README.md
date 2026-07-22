@@ -51,8 +51,8 @@ Build the container:
 docker build -t graph-metadata-dashboard:latest .
 ```
 
-Render the Helm chart:
+Install the Helm chart:
 
 ```bash
-helm template graph-metadata-dashboard charts/graph-metadata-dashboard
+helm -n <namespace> install <release> . -f <values_file>
 ```
