@@ -217,6 +217,19 @@ body {
   margin-top: auto;
 }
 
+.sankey-slider-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sankey-slider-field label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .upload-selection {
   margin: 0.75rem 0 1rem;
   color: var(--muted);

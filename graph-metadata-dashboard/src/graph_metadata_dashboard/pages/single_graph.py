@@ -29,7 +29,11 @@ from graph_metadata_dashboard.loaders.kgx_storage import (
 )
 from graph_metadata_dashboard.loaders.uploaded import UploadedMetadata, decode_dash_upload
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
-from graph_metadata_dashboard.parsers.models import EdgeTriple, ParsedGraphMetadata
+from graph_metadata_dashboard.parsers.models import (
+    EdgeTriple,
+    KnowledgeSourcePredicateCount,
+    ParsedGraphMetadata,
+)
 from graph_metadata_dashboard.viz.figures import (
     knowledge_source_predicate_sankey,
     node_category_bar,
@@ -39,6 +43,9 @@ from graph_metadata_dashboard.viz.figures import (
 GraphState = dict[str, Any]
 LoadGraphResult = tuple[object, object, object, object, object, object, object]
 ALL_SUBJECT_CATEGORIES_VALUE = "__all_categories__"
+ALL_CATEGORY_SANKEY_TOP_N = 40
+SUBJECT_CATEGORY_SANKEY_TOP_N = 200
+SOURCE_PREDICATE_SANKEY_TOP_N = 100
 
 
 def layout() -> html.Div:
@@ -164,9 +171,9 @@ def layout() -> html.Div:
                         children=[
                             html.H3("Predicate Composition"),
                             html.P(
-                                "View this graph's predicates from two perspectives. One shows which "
-                                "knowledge sources contribute to each predicate type. The other shows "
-                                "which entity types those predicates connect.",
+                                "View this graph's predicates from two perspectives. One shows "
+                                "which knowledge sources contribute to each predicate type. The "
+                                "other shows which entity types those predicates connect.",
                                 className="status-line",
                             ),
                             html.Div(
@@ -180,6 +187,32 @@ def layout() -> html.Div:
                                                 "A two-column Sankey chart showing which knowledge "
                                                 "sources contribute to each predicate type",
                                                 className="status-line",
+                                            ),
+                                            html.Div(
+                                                className="sankey-slider-field",
+                                                children=[
+                                                    html.Label(
+                                                        "Top sources and predicates",
+                                                        htmlFor="source-predicate-top-n-slider",
+                                                    ),
+                                                    dcc.Slider(
+                                                        id="source-predicate-top-n-slider",
+                                                        min=1,
+                                                        max=SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                        step=1,
+                                                        value=SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                        marks=_sankey_slider_marks(
+                                                            SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                            defaults=(
+                                                                SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                            ),
+                                                        ),
+                                                        tooltip={
+                                                            "placement": "bottom",
+                                                            "always_visible": False,
+                                                        },
+                                                    ),
+                                                ],
                                             ),
                                             html.Button(
                                                 "Show source-predicate Sankey",
@@ -195,15 +228,45 @@ def layout() -> html.Div:
                                         children=[
                                             html.H4("Subject to Predicate to Object"),
                                             html.P(
-                                                "A subject category-scoped three-column chart. Choose "
-                                                "one subject category, or select \"All categories\" "
-                                                "for the top-40-by-edge-count view in the whole graph.",
+                                                "A subject category-scoped three-column chart. "
+                                                "Choose one subject category to view "
+                                                "relationship triples within that selected "
+                                                "subject category, or select "
+                                                '"All categories"  to view relationship '
+                                                "triples across the whole graph.",
                                                 className="status-line",
                                             ),
                                             dcc.Dropdown(
                                                 id="sankey-subject-category-dropdown",
                                                 placeholder="Select subject category",
                                                 clearable=False,
+                                            ),
+                                            html.Div(
+                                                className="sankey-slider-field",
+                                                children=[
+                                                    html.Label(
+                                                        "Top relationship triples",
+                                                        htmlFor="sankey-top-n-slider",
+                                                    ),
+                                                    dcc.Slider(
+                                                        id="sankey-top-n-slider",
+                                                        min=1,
+                                                        max=SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                        step=1,
+                                                        value=SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                        marks=_sankey_slider_marks(
+                                                            SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                            defaults=(
+                                                                ALL_CATEGORY_SANKEY_TOP_N,
+                                                                SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                            ),
+                                                        ),
+                                                        tooltip={
+                                                            "placement": "bottom",
+                                                            "always_visible": False,
+                                                        },
+                                                    ),
+                                                ],
                                             ),
                                             html.Button(
                                                 "Show subject-predicate-object Sankey",
@@ -496,17 +559,83 @@ def register_callbacks(
         return options, default_value, False
 
     @app.callback(
+        Output("sankey-top-n-slider", "value"),
+        Output("sankey-top-n-slider", "max"),
+        Output("sankey-top-n-slider", "marks"),
+        Input("sankey-subject-category-dropdown", "value"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def configure_sankey_top_n_slider(
+        selected_subject: str | None,
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[int, int, dict[int, str]]:
+        subject_filter = (
+            None
+            if selected_subject in {None, ALL_SUBJECT_CATEGORIES_VALUE}
+            else selected_subject
+        )
+        default_top_n = _predicate_sankey_top_n(subject_filter)
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return _sankey_slider_config(default_top_n, default_top_n)
+        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        if parsed.schema is None:
+            return _sankey_slider_config(default_top_n, default_top_n)
+        max_top_n = _predicate_sankey_top_n_limit(parsed.schema.edges, subject_filter)
+        return _sankey_slider_config(
+            default_top_n,
+            max_top_n,
+            defaults=(ALL_CATEGORY_SANKEY_TOP_N, SUBJECT_CATEGORY_SANKEY_TOP_N),
+        )
+
+    @app.callback(
+        Output("source-predicate-top-n-slider", "value"),
+        Output("source-predicate-top-n-slider", "max"),
+        Output("source-predicate-top-n-slider", "marks"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def configure_source_predicate_top_n_slider(
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[int, int, dict[int, str]]:
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return _sankey_slider_config(
+                SOURCE_PREDICATE_SANKEY_TOP_N,
+                SOURCE_PREDICATE_SANKEY_TOP_N,
+            )
+        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        if parsed.schema is None:
+            return _sankey_slider_config(
+                SOURCE_PREDICATE_SANKEY_TOP_N,
+                SOURCE_PREDICATE_SANKEY_TOP_N,
+            )
+        max_top_n = _source_predicate_top_n_limit(parsed.schema.source_predicate_counts)
+        return _sankey_slider_config(
+            SOURCE_PREDICATE_SANKEY_TOP_N,
+            max_top_n,
+            defaults=(SOURCE_PREDICATE_SANKEY_TOP_N,),
+        )
+
+    @app.callback(
         Output("source-predicate-sankey-visible", "data"),
         Output("source-predicate-panel-body", "children"),
         Output("show-source-predicate-sankey", "disabled"),
         Output("show-source-predicate-sankey", "children"),
         Input("show-source-predicate-sankey", "n_clicks"),
+        Input("source-predicate-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
         State("source-predicate-sankey-visible", "data"),
         State("session-id", "data"),
     )
     def render_source_predicate_sankey_panel(
         show_clicks: int | None,
+        top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
         visible: bool | None,
         session_id: str | None,
@@ -532,7 +661,17 @@ def register_callbacks(
         return (
             True,
             dcc.Graph(
-                figure=knowledge_source_predicate_sankey(parsed.schema.source_predicate_counts),
+                figure=knowledge_source_predicate_sankey(
+                    parsed.schema.source_predicate_counts,
+                    top_n_sources=_slider_top_n(
+                        top_n_value,
+                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                    ),
+                    top_n_predicates=_slider_top_n(
+                        top_n_value,
+                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                    ),
+                ),
                 className="inline-sankey-graph",
                 config={"responsive": True},
             ),
@@ -546,6 +685,7 @@ def register_callbacks(
         Output("show-sankey", "disabled"),
         Input("show-sankey", "n_clicks"),
         Input("sankey-subject-category-dropdown", "value"),
+        Input("sankey-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
         State("subject-sankey-visible", "data"),
         State("session-id", "data"),
@@ -553,6 +693,7 @@ def register_callbacks(
     def render_sankey_panel(
         show_clicks: int | None,
         selected_subject: str | None,
+        top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
         visible: bool | None,
         session_id: str | None,
@@ -573,7 +714,10 @@ def register_callbacks(
             if selected_subject in {None, ALL_SUBJECT_CATEGORIES_VALUE}
             else selected_subject
         )
-        top_n = 40
+        top_n = _slider_top_n(
+            top_n_value,
+            default=_predicate_sankey_top_n(subject_filter),
+        )
         if subject_filter is None and selected_subject != ALL_SUBJECT_CATEGORIES_VALUE:
             return visible, "", False
         if not parsed.schema.edges:
@@ -777,7 +921,7 @@ def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, s
     ]
     return [
         {
-            "label": "All categories (top 40 by edge count)",
+            "label": "All categories",
             "value": ALL_SUBJECT_CATEGORIES_VALUE,
         },
         *[{"label": subject, "value": subject} for subject in ordered_subjects],
@@ -786,6 +930,62 @@ def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, s
 
 def _edge_subject_label(edge: EdgeTriple) -> str:
     return ", ".join(edge.subject_category) or "Other"
+
+
+def _predicate_sankey_top_n(subject_filter: str | None) -> int:
+    if subject_filter is None:
+        return ALL_CATEGORY_SANKEY_TOP_N
+    return SUBJECT_CATEGORY_SANKEY_TOP_N
+
+
+def _predicate_sankey_top_n_limit(
+    edges: tuple[EdgeTriple, ...],
+    subject_filter: str | None,
+) -> int:
+    if subject_filter is None:
+        return max(1, len(edges))
+    return max(
+        1,
+        sum(1 for edge in edges if _edge_subject_label(edge) == subject_filter),
+    )
+
+
+def _source_predicate_top_n_limit(
+    counts: tuple[KnowledgeSourcePredicateCount, ...],
+) -> int:
+    sources = {count.source for count in counts}
+    predicates = {count.predicate for count in counts}
+    return max(1, len(sources), len(predicates))
+
+
+def _sankey_slider_config(
+    default_value: int,
+    max_value: int,
+    *,
+    defaults: tuple[int, ...] = (),
+) -> tuple[int, int, dict[int, str]]:
+    safe_max = max(1, max_value)
+    return (
+        min(default_value, safe_max),
+        safe_max,
+        _sankey_slider_marks(safe_max, defaults=defaults),
+    )
+
+
+def _sankey_slider_marks(max_value: int, *, defaults: tuple[int, ...]) -> dict[int, str]:
+    safe_max = max(1, max_value)
+    mark_values = {1, safe_max}
+    mark_values.update(value for value in defaults if 1 <= value <= safe_max)
+    return {
+        value: f"{value} (all)" if value == safe_max else str(value)
+        for value in sorted(mark_values)
+    }
+
+
+def _slider_top_n(value: int | float | None, *, default: int) -> int:
+    if value is None:
+        return default
+    return max(1, int(value))
 
 
 def _sankey_unavailable_message() -> html.Div:

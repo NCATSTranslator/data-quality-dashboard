@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
-from graph_metadata_dashboard.parsers.models import KnowledgeSourcePredicateCount
+from graph_metadata_dashboard.parsers.models import EdgeTriple, KnowledgeSourcePredicateCount
 from graph_metadata_dashboard.viz.figures import (
     count_bar,
     knowledge_source_predicate_sankey,
@@ -52,11 +52,50 @@ def test_predicate_sankey_can_scope_to_subject_category() -> None:
 
     figure = predicate_sankey(parsed.schema.edges, subject_filter=subject, top_n=40)
 
-    assert str(figure.layout.title.text).startswith(f"Showing: {subject}")
     assert all(
         str(label).startswith((f"Subject: {subject}", "Predicate: ", "Object: "))
         for label in figure.data[0].node.label
     )
+
+
+def test_predicate_sankey_keeps_all_category_cap_but_allows_filtered_relationships() -> None:
+    edges = tuple(
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate=f"biolink:predicate_{index}",
+            object_category=(f"biolink:Object{index}",),
+            count=100 - index,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        )
+        for index in range(50)
+    )
+
+    unfiltered = predicate_sankey(edges)
+    filtered = predicate_sankey(edges, subject_filter="biolink:Gene", top_n=200)
+
+    assert len(unfiltered.data[0].link.value) == 80
+    assert len(filtered.data[0].link.value) == 100
+    
+
+def test_knowledge_source_predicate_sankey_default_caps_show_robokop_sized_vocab() -> None:
+    counts = tuple(
+        KnowledgeSourcePredicateCount(
+            source=f"infores:source-{index}",
+            predicate=f"biolink:predicate-{index}",
+            count=1000 - index,
+        )
+        for index in range(77)
+    )
+
+    figure = knowledge_source_predicate_sankey(counts)
+
+    labels = list(figure.data[0].node.label)
+    assert "Source: Other" not in labels
+    assert "Predicate: Other" not in labels
 
 
 def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:

@@ -268,8 +268,8 @@ def predicate_sankey(
 def knowledge_source_predicate_sankey(
     counts: tuple[KnowledgeSourcePredicateCount, ...],
     *,
-    top_n_sources: int | None = 25,
-    top_n_predicates: int | None = 25,
+    top_n_sources: int | None = 100,
+    top_n_predicates: int | None = 100,
 ) -> go.Figure:
     source_color = _assign_palette(sorted({count.source for count in counts}))
     collapsed = _collapse_source_predicate_counts(
@@ -383,15 +383,16 @@ def _sankey_title(
         relationship_count = len(candidate_edges)
         if len(selected_edges) < relationship_count:
             return (
-                f"Showing: {subject_filter} "
-                f"(top {len(selected_edges)} of {relationship_count} relationship types)"
+                f"Showing top {len(selected_edges)} of {relationship_count} relationship triples "
+                f"within {subject_filter} subject category"
             )
-        return f"Showing: {subject_filter} ({relationship_count} relationship types)"
+        return f"Showing {relationship_count} relationship triples within {subject_filter}" \
+        " subject category"
 
     if top_n is None or top_n < 0 or len(candidate_edges) <= top_n:
-        return "All Subject-Predicate-Object Flows"
+        return "All Subject-Predicate-Object Relationship Triples"
 
-    return f"Top {top_n} Subject-Predicate-Object Flows"
+    return f"Top {top_n} Subject-Predicate-Object Relationship Triples"
 
 
 def _sankey_height(labels: list[str]) -> int:
