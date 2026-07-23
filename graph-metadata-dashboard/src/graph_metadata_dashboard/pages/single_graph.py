@@ -55,18 +55,16 @@ def layout() -> html.Div:
             dcc.Store(id="source-predicate-sankey-visible"),
             dcc.Store(id="subject-sankey-visible"),
             html.Section(
-                className="hero",
+                className="intro-card",
                 children=[
                     html.Div(
                         [
-                            html.P("ORION Graph Metadata", className="eyebrow"),
-                            html.H2("Explore graph structure and provenance through metadata"),
                             html.P(
                                 "Select one or more graph releases from the Biomedical Data "
-                                "Translator KGX storage, or upload your own graph-metadata.json "
-                                "(optionally with schema.json). Selecting a single graph "
-                                "summarizes and visualizes its metadata, while selecting multiple "
-                                "graphs compares their metadata."
+                                "Translator KGX storage, or upload your own graph metadata json file"
+                                "(optionally with linked schema.json). Select a single graph to "
+                                "summarize and visualize its metadata, or select multiple "
+                                "graphs to compare their metadata."
                             ),
                         ]
                     ),
