@@ -5,6 +5,7 @@ A Dash app for visualizing and comparing [ORION](https://github.com/robokopu24/o
 ## Workflow
 
 - Load the latest Biomedical Data Translator knowledge graph metadata files from its [KGX storage release manifest](https://kgx-storage.ci.transltr.io/releases/latest-release-summary.json) for user selection.
+- Load ORION-produced graph metadata from configured trusted URL prefixes.
 - Allow users to upload a local ORION-produced graph metadata JSON file and optional linked schema JSON file.
 - Parse graph metadata through ORION's `KGXGraphMetadata` class.
 - Keep metadata payloads in a server-side cache, scoped by session.
@@ -40,6 +41,8 @@ The app listens on the port number set by the `PORT` environment variable or def
 - `METADATA_CACHE_DIR`: defaults to `/tmp/graph-metadata-dashboard-cache`
 - `METADATA_CACHE_TTL_SECONDS`: defaults to `3600`
 - `REQUESTS_TIMEOUT_SECONDS`: defaults to `20`
+- `REMOTE_METADATA_ALLOWED_URL_PREFIXES`: comma-separated trusted URL prefixes for remote metadata fetches.
+- `REMOTE_METADATA_MAX_BYTES`: maximum remote metadata response size in bytes, defaults to `67108864`.
 - `PORT`: defaults to `8050`
 - `DASH_DEBUG`: defaults to `false`
 

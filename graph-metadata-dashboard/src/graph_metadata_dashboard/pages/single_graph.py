@@ -21,6 +21,7 @@ from graph_metadata_dashboard.cache import MetadataCache
 from graph_metadata_dashboard.components.single_graph import (
     provenance_contribution,
     upload_selection_status,
+    url_selection_status,
 )
 from graph_metadata_dashboard.loaders.kgx_storage import (
     KgxRelease,
@@ -28,6 +29,7 @@ from graph_metadata_dashboard.loaders.kgx_storage import (
     KgxStorageRelease,
 )
 from graph_metadata_dashboard.loaders.uploaded import UploadedMetadata, decode_dash_upload
+from graph_metadata_dashboard.loaders.url import UrlMetadata, UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
 from graph_metadata_dashboard.parsers.models import (
     EdgeTriple,
@@ -41,7 +43,7 @@ from graph_metadata_dashboard.viz.figures import (
 )
 
 GraphState = dict[str, Any]
-LoadGraphResult = tuple[object, object, object, object, object, object, object]
+LoadGraphResult = tuple[object, object, object, object, object, object, object, object, object]
 ALL_SUBJECT_CATEGORIES_VALUE = "__all_categories__"
 ALL_CATEGORY_SANKEY_TOP_N = 40
 SUBJECT_CATEGORY_SANKEY_TOP_N = 200
@@ -61,10 +63,10 @@ def layout() -> html.Div:
                         [
                             html.P(
                                 "Select one or more graph releases from the Biomedical Data "
-                                "Translator KGX storage, or upload your own graph metadata json file"
-                                "(optionally with linked schema.json). Select a single graph to "
-                                "summarize and visualize its metadata, or select multiple "
-                                "graphs to compare their metadata."
+                                "Translator KGX storage, paste a trusted metadata URL, or provide "
+                                "local metadata JSON. Select a single graph to summarize and "
+                                "visualize its metadata, or select multiple graphs to compare "
+                                "their metadata."
                             ),
                         ]
                     ),
@@ -78,8 +80,8 @@ def layout() -> html.Div:
                         children=[
                             html.H3("Select Metadata"),
                             html.P(
-                                "Choose from KGX releases, upload local metadata, or combine both "
-                                "before loading selected metadata.",
+                                "Choose from KGX releases, trusted URLs, local uploads, or combine "
+                                "sources before loading selected metadata.",
                                 className="status-line",
                             ),
                         ]
@@ -98,6 +100,30 @@ def layout() -> html.Div:
                                         optionHeight=44,
                                     ),
                                     html.Div(id="release-status", className="status-line"),
+                                ],
+                            ),
+                            html.Div(
+                                className="selector-subsection",
+                                children=[
+                                    html.H4("Metadata URL"),
+                                    dcc.Input(
+                                        id="graph-metadata-url",
+                                        className="metadata-url-input",
+                                        type="url",
+                                        debounce=True,
+                                        placeholder="https://.../graph-metadata.json",
+                                    ),
+                                    dcc.Input(
+                                        id="schema-url",
+                                        className="metadata-url-input secondary",
+                                        type="url",
+                                        debounce=True,
+                                        placeholder="Optional https://.../schema.json",
+                                    ),
+                                    html.Div(
+                                        id="url-selection-status",
+                                        className="url-selection",
+                                    ),
                                 ],
                             ),
                             html.Div(
@@ -312,6 +338,7 @@ def register_callbacks(
     *,
     cache: MetadataCache,
     kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
 ) -> None:
     @app.callback(
         Output("session-id", "data"),
@@ -348,23 +375,43 @@ def register_callbacks(
         return upload_selection_status(graph_filename, schema_filename)
 
     @app.callback(
+        Output("url-selection-status", "children"),
+        Input("graph-metadata-url", "value"),
+        Input("schema-url", "value"),
+    )
+    def render_url_selection(
+        graph_url: str | None,
+        schema_url: str | None,
+    ) -> list[html.P]:
+        return url_selection_status(graph_url, schema_url)
+
+    @app.callback(
         Output("load-selected-metadata", "disabled"),
         Output("reset-selection", "disabled"),
         Input("kgx-release-dropdown", "value"),
         Input("upload-graph-metadata", "filename"),
         Input("upload-schema", "filename"),
+        Input("graph-metadata-url", "value"),
+        Input("schema-url", "value"),
         Input("loaded-graph-state", "data"),
     )
     def toggle_reset_selection(
         selected_source: str | list[str] | None,
         graph_filename: str | None,
         schema_filename: str | None,
+        graph_url: str | None,
+        schema_url: str | None,
         graph_states: list[GraphState] | GraphState | None,
     ) -> tuple[bool, bool]:
-        has_loadable_selection = bool(_selected_source_ids(selected_source) or graph_filename)
+        has_loadable_selection = bool(
+            _selected_source_ids(selected_source)
+            or graph_filename
+            or _clean_url(graph_url)
+        )
         has_resettable_selection = bool(
             has_loadable_selection
             or schema_filename
+            or _clean_url(schema_url)
             or _normalize_graph_states(graph_states)
         )
         return not has_loadable_selection, not has_resettable_selection
@@ -377,13 +424,17 @@ def register_callbacks(
         Output("upload-graph-metadata", "filename"),
         Output("upload-schema", "contents"),
         Output("upload-schema", "filename"),
+        Output("graph-metadata-url", "value"),
+        Output("schema-url", "value"),
         Input("load-selected-metadata", "n_clicks"),
         Input("reset-selection", "n_clicks"),
         Input("kgx-release-dropdown", "value"),
+        Input("graph-metadata-url", "value"),
         State("upload-graph-metadata", "contents"),
         State("upload-graph-metadata", "filename"),
         State("upload-schema", "contents"),
         State("upload-schema", "filename"),
+        State("schema-url", "value"),
         State("session-id", "data"),
         State("loaded-graph-state", "data"),
     )
@@ -391,10 +442,12 @@ def register_callbacks(
         load_clicks: int,
         reset_clicks: int,
         selected_source: str | list[str] | None,
+        graph_url: str | None,
         graph_contents: str | None,
         graph_filename: str | None,
         schema_contents: str | None,
         schema_filename: str | None,
+        schema_url: str | None,
         session_id: str | None,
         graph_states: list[GraphState] | GraphState | None,
     ) -> LoadGraphResult:
@@ -412,10 +465,16 @@ def register_callbacks(
                 upload_filename=None,
                 schema_contents=None,
                 schema_filename=None,
+                graph_url="",
+                schema_url="",
             )
         if trigger == "kgx-release-dropdown":
             return _load_graph_result(
                 graph_state=_prune_unselected_kgx_states(graph_states, selected_source)
+            )
+        if trigger == "graph-metadata-url":
+            return _load_graph_result(
+                graph_state=_prune_unselected_url_states(graph_states, graph_url)
             )
 
         if trigger != "load-selected-metadata":
@@ -423,7 +482,9 @@ def register_callbacks(
 
         try:
             selected_sources = _selected_source_ids(selected_source)
-            if not selected_sources and not graph_contents:
+            selected_graph_url = _clean_url(graph_url)
+            selected_schema_url = _clean_url(schema_url)
+            if not selected_sources and not graph_contents and not selected_graph_url:
                 return _load_graph_result(status="")
 
             loaded_states = []
@@ -438,6 +499,17 @@ def register_callbacks(
                         graph_contents,
                         graph_filename,
                         schema_contents,
+                    )
+                )
+
+            if selected_graph_url:
+                loaded_states.append(
+                    _load_url_graph(
+                        cache,
+                        url_client,
+                        session_id,
+                        selected_graph_url,
+                        selected_schema_url,
                     )
                 )
 
@@ -511,7 +583,9 @@ def register_callbacks(
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
             return ""
-        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
         if parsed.schema is None:
             return html.Div(
                 className="content-card",
@@ -553,7 +627,9 @@ def register_callbacks(
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
             return [], None, True
-        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
         if parsed.schema is None or not parsed.schema.edges:
             return [], None, True
 
@@ -584,7 +660,9 @@ def register_callbacks(
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
             return _sankey_slider_config(default_top_n, default_top_n)
-        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
         if parsed.schema is None:
             return _sankey_slider_config(default_top_n, default_top_n)
         max_top_n = _predicate_sankey_top_n_limit(parsed.schema.edges, subject_filter)
@@ -612,7 +690,9 @@ def register_callbacks(
                 SOURCE_PREDICATE_SANKEY_TOP_N,
                 SOURCE_PREDICATE_SANKEY_TOP_N,
             )
-        parsed = _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
         if parsed.schema is None:
             return _sankey_slider_config(
                 SOURCE_PREDICATE_SANKEY_TOP_N,
@@ -651,7 +731,9 @@ def register_callbacks(
         if not visible:
             return False, "", False, "Show source-predicate Sankey"
 
-        parsed = _single_cached_graph_with_schema(cache, kgx_client, session_id, graph_states)
+        parsed = _single_cached_graph_with_schema(
+            cache, kgx_client, url_client, session_id, graph_states
+        )
         if parsed is None or parsed.schema is None:
             return visible, _sankey_unavailable_message(), False, "Hide source-predicate Sankey"
         if not parsed.schema.source_predicate_counts:
@@ -709,7 +791,9 @@ def register_callbacks(
         if not visible:
             return False, "", False
 
-        parsed = _single_cached_graph_with_schema(cache, kgx_client, session_id, graph_states)
+        parsed = _single_cached_graph_with_schema(
+            cache, kgx_client, url_client, session_id, graph_states
+        )
         if parsed is None or parsed.schema is None:
             return visible, _sankey_unavailable_message(), True
         subject_filter = (
@@ -755,6 +839,8 @@ def _load_graph_result(
     upload_filename: object = no_update,
     schema_contents: object = no_update,
     schema_filename: object = no_update,
+    graph_url: object = no_update,
+    schema_url: object = no_update,
 ) -> LoadGraphResult:
     return (
         graph_state,
@@ -764,6 +850,8 @@ def _load_graph_result(
         upload_filename,
         schema_contents,
         schema_filename,
+        graph_url,
+        schema_url,
     )
 
 
@@ -812,6 +900,32 @@ def _load_uploaded_graph(
     return state
 
 
+def _load_url_graph(
+    cache: MetadataCache,
+    url_client: UrlMetadataClient,
+    session_id: str,
+    graph_url: str,
+    schema_url: str | None,
+) -> GraphState:
+    source = UrlMetadata(
+        client=url_client,
+        graph_metadata_url=graph_url,
+        schema_url=schema_url,
+    )
+    schema_data = source.load_schema() if schema_url else None
+    parsed = parse_graph_metadata(source.load_graph_metadata(), schema_data=schema_data)
+    state = _cache_graph(cache, session_id, source.source_key, parsed)
+    state.update(
+        {
+            "kind": "url",
+            "graph_url": graph_url,
+            "schema_url": schema_url,
+            "label": parsed.name or source.label,
+        }
+    )
+    return state
+
+
 def _cache_graph(
     cache: MetadataCache,
     session_id: str,
@@ -828,6 +942,13 @@ def _selected_source_ids(selected_source: str | list[str] | None) -> list[str]:
     if isinstance(selected_source, list):
         return [source_id for source_id in selected_source if isinstance(source_id, str)]
     return []
+
+
+def _clean_url(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _normalize_graph_states(
@@ -860,6 +981,18 @@ def _prune_unselected_kgx_states(
     return pruned
 
 
+def _prune_unselected_url_states(
+    graph_states: list[GraphState] | GraphState | None,
+    graph_url: str | None,
+) -> list[GraphState]:
+    selected_graph_url = _clean_url(graph_url)
+    pruned: list[GraphState] = []
+    for state in _normalize_graph_states(graph_states):
+        if state.get("kind") != "url" or state.get("graph_url") == selected_graph_url:
+            pruned.append(state)
+    return pruned
+
+
 def _get_cached_graph(
     cache: MetadataCache,
     session_id: str | None,
@@ -877,19 +1010,32 @@ def _get_cached_graph(
 def _ensure_schema_loaded(
     cache: MetadataCache,
     kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
     session_id: str | None,
     graph_state: GraphState | None,
     parsed: ParsedGraphMetadata,
 ) -> ParsedGraphMetadata:
     if parsed.schema is not None or not session_id or not graph_state:
         return parsed
-    if graph_state.get("kind") != "kgx":
+    kind = graph_state.get("kind")
+    cache_key = graph_state.get("cache_key")
+    if not isinstance(cache_key, str):
+        return parsed
+    if kind == "url":
+        schema_url = graph_state.get("schema_url") or parsed.schema_reference.url
+        if not isinstance(schema_url, str) or not schema_url:
+            return parsed
+        schema_data = url_client.load_json(schema_url)
+        schema = parse_schema(schema_data)
+        updated = replace(parsed, schema=schema)
+        cache.set(session_id, cache_key, updated)
+        return updated
+    if kind != "kgx":
         return parsed
     source_id = graph_state.get("source_id")
     release_version = graph_state.get("release_version")
     data_url = graph_state.get("data_url")
-    cache_key = graph_state.get("cache_key")
-    required_values = (source_id, release_version, data_url, cache_key)
+    required_values = (source_id, release_version, data_url)
     if not all(isinstance(value, str) for value in required_values):
         return parsed
     release = KgxRelease(source_id=source_id, release_version=release_version, data_url=data_url)
@@ -903,6 +1049,7 @@ def _ensure_schema_loaded(
 def _single_cached_graph_with_schema(
     cache: MetadataCache,
     kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
     session_id: str | None,
     graph_states: list[GraphState] | GraphState | None,
 ) -> ParsedGraphMetadata | None:
@@ -910,7 +1057,7 @@ def _single_cached_graph_with_schema(
     parsed = _get_cached_graph(cache, session_id, graph_state)
     if parsed is None:
         return None
-    return _ensure_schema_loaded(cache, kgx_client, session_id, graph_state, parsed)
+    return _ensure_schema_loaded(cache, kgx_client, url_client, session_id, graph_state, parsed)
 
 
 def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, str]]:
@@ -1112,6 +1259,9 @@ def _graph_metadata_line(graph_state: GraphState) -> str:
         return "KGX storage"
     if kind == "upload":
         return "Uploaded metadata"
+    if kind == "url":
+        graph_url = graph_state.get("graph_url")
+        return f"Remote metadata - {graph_url}" if isinstance(graph_url, str) else "Remote metadata"
     return "Loaded metadata"
 
 

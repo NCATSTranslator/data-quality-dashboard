@@ -8,6 +8,7 @@ from graph_metadata_dashboard.components.single_graph import (
     primary_knowledge_source_counts,
     provenance_contribution,
     upload_selection_status,
+    url_selection_status,
 )
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
 from tests.conftest import load_fixture
@@ -51,3 +52,14 @@ def test_upload_selection_status_lists_selected_files() -> None:
 
 def test_upload_selection_status_is_empty_before_files_are_selected() -> None:
     assert upload_selection_status(None, None) == []
+
+
+def test_url_selection_status_lists_selected_urls() -> None:
+    status = url_selection_status(
+        " https://metadata.example/graph-metadata.json ",
+        "https://metadata.example/schema.json",
+    )
+
+    assert all(isinstance(item, html.P) for item in status)
+    assert "https://metadata.example/graph-metadata.json" in status[0].children
+    assert "https://metadata.example/schema.json" in status[1].children

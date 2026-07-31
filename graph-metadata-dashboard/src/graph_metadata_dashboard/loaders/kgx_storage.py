@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
+from graph_metadata_dashboard.constants import DEFAULT_REQUESTS_TIMEOUT_SECONDS
 from graph_metadata_dashboard.loaders.base import JsonObject, MetadataSource, ensure_json_object
 
 
@@ -20,7 +21,11 @@ class KgxRelease:
 
 
 class KgxStorageClient:
-    def __init__(self, base_url: str, timeout_seconds: float = 20.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_seconds: float = DEFAULT_REQUESTS_TIMEOUT_SECONDS,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 

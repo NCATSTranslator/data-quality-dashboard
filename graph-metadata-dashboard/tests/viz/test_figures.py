@@ -3,13 +3,13 @@ from __future__ import annotations
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
 from graph_metadata_dashboard.parsers.models import EdgeTriple, KnowledgeSourcePredicateCount
 from graph_metadata_dashboard.viz.figures import (
+    SANKEY_BASE_HEIGHT,
+    SANKEY_DEFAULT_NODE_PAD,
     count_bar,
     knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
     subgraph_contribution_bar,
-    SANKEY_BASE_HEIGHT,
-    SANKEY_DEFAULT_NODE_PAD
 )
 from tests.conftest import load_fixture
 

@@ -8,6 +8,7 @@ from dash import Dash, dcc, html, page_container, page_registry
 from graph_metadata_dashboard.cache.factory import create_metadata_cache
 from graph_metadata_dashboard.config import Settings
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
+from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 
 
 def create_app(settings: Settings | None = None) -> Dash:
@@ -24,10 +25,20 @@ def create_app(settings: Settings | None = None) -> Dash:
         base_url=settings.kgx_storage_base_url,
         timeout_seconds=settings.requests_timeout_seconds,
     )
+    url_client = UrlMetadataClient(
+        settings.remote_metadata_allowed_url_prefixes,
+        timeout_seconds=settings.requests_timeout_seconds,
+        max_bytes=settings.remote_metadata_max_bytes,
+    )
 
     single_graph = _discovered_page_module("single_graph")
     comparison = _discovered_page_module("comparison")
-    single_graph.register_callbacks(app, cache=cache, kgx_client=kgx_client)
+    single_graph.register_callbacks(
+        app,
+        cache=cache,
+        kgx_client=kgx_client,
+        url_client=url_client,
+    )
     comparison.register_callbacks(app)
 
     app.layout = html.Div(

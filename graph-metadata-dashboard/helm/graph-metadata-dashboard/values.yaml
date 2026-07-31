@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: renci/graph-metadata-dashboard
   tag: "v1.0"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 service:
   type: ClusterIP
@@ -16,6 +16,8 @@ env:
   METADATA_CACHE_DIR: "/tmp/graph-metadata-dashboard-cache"
   METADATA_CACHE_TTL_SECONDS: "3600"
   REQUESTS_TIMEOUT_SECONDS: "20"
+  REMOTE_METADATA_ALLOWED_URL_PREFIXES: "https://kgx-storage.ci.transltr.io/releases,https://robokop.renci.org/graphs"
+  REMOTE_METADATA_MAX_BYTES: "67108864"
   PORT: "8050"
   DASH_DEBUG: "false"
 

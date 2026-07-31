@@ -126,6 +126,27 @@ def upload_selection_status(
     return messages
 
 
+def url_selection_status(
+    graph_url: str | None,
+    schema_url: str | None,
+) -> list[html.P]:
+    items: list[html.P] = []
+    selected_graph_url = _clean_string(graph_url)
+    selected_schema_url = _clean_string(schema_url)
+    if selected_graph_url:
+        items.append(html.P(f"Graph metadata URL: {selected_graph_url}"))
+    if selected_schema_url:
+        items.append(html.P(f"Schema URL: {selected_schema_url}"))
+    return items
+
+
+def _clean_string(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _int_from_summary_count(value: Any) -> int | None:
     try:
         return int(value)
