@@ -168,6 +168,9 @@ _SUBJECT_PALETTE = [
 ]
 _NODE_DEFAULT_COLOR = "#64748b"  # predicate/object nodes: neutral slate, not competing with links
 _LINK_ALPHA = 0.35
+_LINK_HIGHLIGHT_ALPHA = 0.82
+_LINK_DIM_ALPHA = 0.06
+_NODE_DIM_ALPHA = 0.20
 
 
 def _assign_palette(labels: list[str]) -> dict[str, str]:
@@ -175,8 +178,81 @@ def _assign_palette(labels: list[str]) -> dict[str, str]:
 
 
 def _with_alpha(hex_color: str, alpha: float) -> str:
+    if hex_color.startswith(("rgba(", "rgb(")):
+        rgb = hex_color.removeprefix("rgba(").removeprefix("rgb(").rstrip(")")
+        r, g, b = [value.strip() for value in rgb.split(",")[:3]]
+        return f"rgba({r}, {g}, {b}, {alpha})"
     r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
     return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+def _sankey_link_color(
+    hex_color: str,
+    source_index: int,
+    target_index: int,
+    selected_node_index: int | None,
+) -> str:
+    if selected_node_index is None:
+        return _with_alpha(hex_color, _LINK_ALPHA)
+    alpha = (
+        _LINK_HIGHLIGHT_ALPHA
+        if selected_node_index in {source_index, target_index}
+        else _LINK_DIM_ALPHA
+    )
+    return _with_alpha(hex_color, alpha)
+
+
+def _sankey_node_colors(
+    node_colors: list[str],
+    sources: list[int],
+    targets: list[int],
+    *,
+    selected_node_index: int | None,
+) -> list[str]:
+    if selected_node_index is None:
+        return node_colors
+    connected_nodes = {selected_node_index}
+    for source, target in zip(sources, targets, strict=True):
+        if selected_node_index in {source, target}:
+            connected_nodes.update({source, target})
+    return [
+        color if index in connected_nodes else _with_alpha(color, _NODE_DIM_ALPHA)
+        for index, color in enumerate(node_colors)
+    ]
+
+
+def sankey_highlight_colors(
+    figure: dict[str, object] | None,
+    click_data: dict[str, object] | None,
+) -> tuple[list[str], list[str]] | None:
+    trace = _sankey_trace_from_figure(figure)
+    selected_node_index = _sankey_clicked_node_index(trace, click_data)
+    if trace is None or selected_node_index is None:
+        return None
+    link = trace.get("link")
+    node = trace.get("node")
+    meta = trace.get("meta")
+    if not isinstance(link, dict) or not isinstance(node, dict) or not isinstance(meta, dict):
+        return None
+    sources = _int_list(link.get("source"))
+    targets = _int_list(link.get("target"))
+    base_link_colors = _str_list(meta.get("base_link_colors"))
+    base_node_colors = _str_list(meta.get("base_node_colors"))
+    if not sources or len(sources) != len(targets) or len(base_link_colors) != len(sources):
+        return None
+    if not base_node_colors:
+        return None
+    link_colors = [
+        _sankey_link_color(color, source, target, selected_node_index)
+        for color, source, target in zip(base_link_colors, sources, targets, strict=True)
+    ]
+    node_colors = _sankey_node_colors(
+        base_node_colors,
+        sources,
+        targets,
+        selected_node_index=selected_node_index,
+    )
+    return link_colors, node_colors
 
 
 def predicate_sankey(
@@ -184,6 +260,7 @@ def predicate_sankey(
     *,
     top_n: int | None = 40,
     subject_filter: str | None = None,
+    selected_node_label: str | None = None,
 ) -> go.Figure:
     # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
     # category's color is stable regardless of top_n or any future category filter
@@ -197,6 +274,7 @@ def predicate_sankey(
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
+    selected_node_index = _sankey_selected_node_index(labels, selected_node_label)
 
     # Every triple's two link segments (subject->predicate, predicate->object) share one
     # color, keyed off the *subject* category — this is what lets a viewer visually trace a
@@ -210,7 +288,7 @@ def predicate_sankey(
     sources: list[int] = []
     targets: list[int] = []
     values: list[float] = []
-    link_colors: list[str] = []
+    base_link_colors: list[str] = []
     link_customdata: list[list[str]] = []
     node_totals: defaultdict[str, int] = defaultdict(int)
     value_transform = _predicate_sankey_value_transform(
@@ -222,18 +300,32 @@ def predicate_sankey(
         subject_label = f"Subject: {subject}"
         predicate_label = f"Predicate: {predicate}"
         object_label = f"Object: {obj}"
-        color = _with_alpha(subject_color[subject], _LINK_ALPHA)
+        color = subject_color[subject]
         path = f"{subject} -[{predicate}]-> {obj}"
         display_count = _display_count_value(count, value_transform)
-        sources.extend([index[subject_label], index[predicate_label]])
-        targets.extend([index[predicate_label], index[object_label]])
+        subject_index = index[subject_label]
+        predicate_index = index[predicate_label]
+        object_index = index[object_label]
+        sources.extend([subject_index, predicate_index])
+        targets.extend([predicate_index, object_index])
         values.extend([display_count, display_count])
-        link_colors.extend([color, color])
+        base_link_colors.extend([color, color])
         link_customdata.extend([[path, f"{count:,}"], [path, f"{count:,}"]])
         node_totals[subject_label] += count
         node_totals[predicate_label] += count
         node_totals[object_label] += count
 
+    link_colors = [
+        _sankey_link_color(color, source, target, selected_node_index)
+        for color, source, target in zip(base_link_colors, sources, targets, strict=True)
+    ]
+    base_node_colors = list(node_colors)
+    node_colors = _sankey_node_colors(
+        base_node_colors,
+        sources,
+        targets,
+        selected_node_index=selected_node_index,
+    )
     node_display_labels = [_sankey_display_label(label) for label in labels]
     node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
     max_column_nodes = _predicate_sankey_max_column_nodes(collapsed)
@@ -266,6 +358,11 @@ def predicate_sankey(
                         "<extra></extra>"
                     ),
                 },
+                meta={
+                    "base_link_colors": base_link_colors,
+                    "base_node_colors": base_node_colors,
+                },
+                arrangement="fixed",
             )
         ]
     )
@@ -289,6 +386,7 @@ def knowledge_source_predicate_sankey(
     *,
     top_n_sources: int | None = 100,
     top_n_predicates: int | None = 100,
+    selected_node_label: str | None = None,
 ) -> go.Figure:
     source_color = _assign_palette(sorted({count.source for count in counts}))
     collapsed = _collapse_source_predicate_counts(
@@ -298,11 +396,12 @@ def knowledge_source_predicate_sankey(
     )
     labels = _source_predicate_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
+    selected_node_index = _sankey_selected_node_index(labels, selected_node_label)
 
     sources: list[int] = []
     targets: list[int] = []
     values: list[float] = []
-    link_colors: list[str] = []
+    base_link_colors: list[str] = []
     link_customdata: list[list[str]] = []
     node_totals: defaultdict[str, int] = defaultdict(int)
     value_transform = _source_predicate_value_transform(collapsed)
@@ -311,10 +410,12 @@ def knowledge_source_predicate_sankey(
         source_label = f"Source: {source}"
         predicate_label = f"Predicate: {predicate}"
         color = source_color.get(source, _NODE_DEFAULT_COLOR)
-        sources.append(index[source_label])
-        targets.append(index[predicate_label])
+        source_index = index[source_label]
+        predicate_index = index[predicate_label]
+        sources.append(source_index)
+        targets.append(predicate_index)
         values.append(_display_count_value(count, value_transform))
-        link_colors.append(_with_alpha(color, _LINK_ALPHA))
+        base_link_colors.append(color)
         link_customdata.append([source, predicate, f"{count:,}"])
         node_totals[source_label] += count
         node_totals[predicate_label] += count
@@ -327,6 +428,17 @@ def knowledge_source_predicate_sankey(
             node_colors.append(source_color.get(source, _NODE_DEFAULT_COLOR))
         else:
             node_colors.append(_NODE_DEFAULT_COLOR)
+    link_colors = [
+        _sankey_link_color(color, source, target, selected_node_index)
+        for color, source, target in zip(base_link_colors, sources, targets, strict=True)
+    ]
+    base_node_colors = list(node_colors)
+    node_colors = _sankey_node_colors(
+        base_node_colors,
+        sources,
+        targets,
+        selected_node_index=selected_node_index,
+    )
     node_customdata = [[label, f"{node_totals[label]:,}"] for label in labels]
     max_column_nodes = _source_predicate_max_column_nodes(collapsed)
     node_pad = _sankey_node_pad(max_column_nodes)
@@ -358,7 +470,11 @@ def knowledge_source_predicate_sankey(
                         "<extra></extra>"
                     ),
                 },
-                arrangement="snap",
+                meta={
+                    "base_link_colors": base_link_colors,
+                    "base_node_colors": base_node_colors,
+                },
+                arrangement="fixed",
             )
         ]
     )
@@ -513,6 +629,104 @@ def _sankey_display_label(label: str) -> str:
         if label.startswith(prefix):
             return label.removeprefix(prefix)
     return label
+
+
+def _sankey_selected_node_index(labels: list[str], selected_label: str | None) -> int | None:
+    if not selected_label:
+        return None
+    full_label_matches = [index for index, label in enumerate(labels) if label == selected_label]
+    if len(full_label_matches) == 1:
+        return full_label_matches[0]
+    display_label_matches = [
+        index
+        for index, label in enumerate(labels)
+        if _sankey_display_label(label) == selected_label
+    ]
+    if len(display_label_matches) == 1:
+        return display_label_matches[0]
+    return None
+
+
+def _sankey_trace_from_figure(figure: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(figure, dict):
+        return None
+    data = figure.get("data")
+    if not isinstance(data, list) or not data:
+        return None
+    trace = data[0]
+    return trace if isinstance(trace, dict) else None
+
+
+def _sankey_clicked_node_index(
+    trace: dict[str, object] | None,
+    click_data: dict[str, object] | None,
+) -> int | None:
+    if trace is None or not isinstance(click_data, dict):
+        return None
+    points = click_data.get("points")
+    if not isinstance(points, list) or not points:
+        return None
+    point = points[0]
+    if not isinstance(point, dict) or _sankey_click_is_link(point):
+        return None
+    node = trace.get("node")
+    if not isinstance(node, dict):
+        return None
+    labels = _str_list(node.get("label"))
+    customdata = node.get("customdata")
+
+    clicked_label = point.get("label")
+    if isinstance(clicked_label, str):
+        matches = [index for index, label in enumerate(labels) if label == clicked_label]
+        if len(matches) == 1:
+            return matches[0]
+        point_number = point.get("pointNumber", point.get("pointIndex"))
+        if (
+            len(matches) > 1
+            and isinstance(point_number, int)
+            and 0 <= point_number < len(labels)
+            and labels[point_number] == clicked_label
+        ):
+            return point_number
+
+    clicked_custom_label = _sankey_clicked_customdata_label(point)
+    if clicked_custom_label:
+        custom_matches = [
+            index
+            for index, value in enumerate(customdata)
+            if _sankey_customdata_label(value) == clicked_custom_label
+        ] if isinstance(customdata, list) else []
+        if len(custom_matches) == 1:
+            return custom_matches[0]
+    return None
+
+
+def _sankey_click_is_link(point: dict[str, object]) -> bool:
+    return any(key in point for key in ("source", "target"))
+
+
+def _sankey_clicked_customdata_label(point: dict[str, object]) -> str | None:
+    customdata = point.get("customdata")
+    return _sankey_customdata_label(customdata)
+
+
+def _sankey_customdata_label(value: object) -> str | None:
+    if not isinstance(value, list) or not value:
+        return None
+    label = value[0]
+    return label if isinstance(label, str) else None
+
+
+def _int_list(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, int)]
+
+
+def _str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _collapse_source_predicate_counts(

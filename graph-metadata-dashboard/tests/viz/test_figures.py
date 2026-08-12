@@ -9,6 +9,7 @@ from graph_metadata_dashboard.viz.figures import (
     knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
+    sankey_highlight_colors,
     subgraph_contribution_bar,
 )
 from tests.conftest import load_fixture
@@ -109,6 +110,167 @@ def test_predicate_sankey_uses_consistent_all_category_compression() -> None:
     assert expanded_view.data[0].link.customdata[0][1] == "100,000,000"
 
 
+def test_predicate_sankey_highlights_links_connected_to_selected_node() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:ChemicalEntity",),
+            predicate="biolink:treats",
+            object_category=("biolink:Disease",),
+            count=50,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+
+    figure = predicate_sankey(
+        edges,
+        top_n=None,
+        selected_node_label="Predicate: biolink:related_to",
+    )
+
+    assert str(figure.data[0].link.color[0]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[1]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[2]).endswith(", 0.06)")
+    assert str(figure.data[0].link.color[3]).endswith(", 0.06)")
+
+
+def test_predicate_sankey_can_highlight_from_displayed_node_label() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:ChemicalEntity",),
+            predicate="biolink:treats",
+            object_category=("biolink:PhenotypicFeature",),
+            count=50,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+
+    figure = predicate_sankey(edges, top_n=None, selected_node_label="biolink:related_to")
+
+    assert str(figure.data[0].link.color[0]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[1]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[2]).endswith(", 0.06)")
+    assert str(figure.data[0].link.color[3]).endswith(", 0.06)")
+
+
+def test_sankey_highlight_colors_handles_node_click_data() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:ChemicalEntity",),
+            predicate="biolink:treats",
+            object_category=("biolink:PhenotypicFeature",),
+            count=50,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+    figure = predicate_sankey(edges, top_n=None)
+
+    colors = sankey_highlight_colors(
+        figure.to_dict(),
+        {"points": [{"label": "biolink:related_to"}]},
+    )
+
+    assert colors is not None
+    link_colors, node_colors = colors
+    assert link_colors[0].endswith(", 0.82)")
+    assert link_colors[1].endswith(", 0.82)")
+    assert link_colors[2].endswith(", 0.06)")
+    assert link_colors[3].endswith(", 0.06)")
+    assert any(color.endswith(", 0.2)") for color in node_colors)
+
+
+def test_sankey_highlight_colors_ignores_link_click_data() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+    figure = predicate_sankey(edges, top_n=None)
+
+    colors = sankey_highlight_colors(
+        figure.to_dict(),
+        {"points": [{"pointNumber": 0, "source": 0, "target": 1}]},
+    )
+
+    assert colors is None
+
+
+def test_sankey_highlight_colors_ignores_bare_point_number() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+    figure = predicate_sankey(edges, top_n=None)
+
+    colors = sankey_highlight_colors(
+        figure.to_dict(),
+        {"points": [{"pointNumber": 0}]},
+    )
+
+    assert colors is None
+
+
 def test_knowledge_source_predicate_sankey_default_caps_show_robokop_sized_vocab() -> None:
     counts = tuple(
         KnowledgeSourcePredicateCount(
@@ -184,6 +346,52 @@ def test_knowledge_source_predicate_sankey_uses_stronger_compression_for_tiny_fl
 
     assert list(figure.data[0].link.value) == [100.0, 2.0]
     assert figure.data[0].link.customdata[1][2] == "16"
+
+
+def test_knowledge_source_predicate_sankey_highlights_selected_source_links() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount(
+            source="infores:source-a",
+            predicate="biolink:related_to",
+            count=100,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:source-b",
+            predicate="biolink:treats",
+            count=50,
+        ),
+    )
+
+    figure = knowledge_source_predicate_sankey(
+        counts,
+        selected_node_label="Source: infores:source-a",
+    )
+
+    assert str(figure.data[0].link.color[0]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[1]).endswith(", 0.06)")
+
+
+def test_knowledge_source_predicate_sankey_can_highlight_from_displayed_node_label() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount(
+            source="infores:source-a",
+            predicate="biolink:related_to",
+            count=100,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:source-b",
+            predicate="biolink:treats",
+            count=50,
+        ),
+    )
+
+    figure = knowledge_source_predicate_sankey(
+        counts,
+        selected_node_label="infores:source-a",
+    )
+
+    assert str(figure.data[0].link.color[0]).endswith(", 0.82)")
+    assert str(figure.data[0].link.color[1]).endswith(", 0.06)")
 
 
 def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:

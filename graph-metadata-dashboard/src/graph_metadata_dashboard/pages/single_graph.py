@@ -197,7 +197,9 @@ def layout() -> html.Div:
                             html.P(
                                 "View this graph's predicates from two perspectives. One shows "
                                 "which knowledge sources contribute to each predicate type. The "
-                                "other shows which entity types those predicates connect.",
+                                "other shows which entity types those predicates connect. Click "
+                                "a Sankey node to select it with its connected flows highlighted; "
+                                "click it again to deselect it and reset the view.",
                                 className="status-line",
                             ),
                             html.Div(
@@ -746,6 +748,7 @@ def register_callbacks(
         return (
             True,
             dcc.Graph(
+                id="source-predicate-sankey-graph",
                 figure=knowledge_source_predicate_sankey(
                     parsed.schema.source_predicate_counts,
                     top_n_sources=_slider_top_n(
@@ -819,6 +822,7 @@ def register_callbacks(
         return (
             True,
             dcc.Graph(
+                id="subject-predicate-object-sankey-graph",
                 figure=predicate_sankey(
                     parsed.schema.edges,
                     top_n=top_n,
