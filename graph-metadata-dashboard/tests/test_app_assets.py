@@ -17,5 +17,7 @@ def test_sankey_interactions_script_is_served() -> None:
     response = app.server.test_client().get("/assets/sankey_interactions.js")
 
     assert response.status_code == 200
-    assert b"Plotly.restyle" in response.data
+    assert b"sankey-link" in response.data
+    assert b"sankey-node" in response.data
+    assert b"Plotly.restyle" not in response.data
     assert b"plotly_click" not in response.data

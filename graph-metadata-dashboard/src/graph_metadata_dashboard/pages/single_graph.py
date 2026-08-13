@@ -230,6 +230,7 @@ def layout() -> html.Div:
                                                         max=SOURCE_PREDICATE_SANKEY_TOP_N,
                                                         step=1,
                                                         value=SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                        updatemode="mouseup",
                                                         marks=_sankey_slider_marks(
                                                             SOURCE_PREDICATE_SANKEY_TOP_N,
                                                             defaults=(
@@ -285,6 +286,7 @@ def layout() -> html.Div:
                                                         max=SUBJECT_CATEGORY_SANKEY_TOP_N,
                                                         step=1,
                                                         value=SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                        updatemode="mouseup",
                                                         marks=_sankey_slider_marks(
                                                             SUBJECT_CATEGORY_SANKEY_TOP_N,
                                                             defaults=(
@@ -709,96 +711,111 @@ def register_callbacks(
 
     @app.callback(
         Output("source-predicate-sankey-visible", "data"),
-        Output("source-predicate-panel-body", "children"),
-        Output("show-source-predicate-sankey", "disabled"),
         Output("show-source-predicate-sankey", "children"),
         Input("show-source-predicate-sankey", "n_clicks"),
-        Input("source-predicate-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
         State("source-predicate-sankey-visible", "data"),
-        State("session-id", "data"),
     )
-    def render_source_predicate_sankey_panel(
+    def toggle_source_predicate_sankey_panel(
         show_clicks: int | None,
-        top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
         visible: bool | None,
-        session_id: str | None,
-    ) -> tuple[bool, Any, bool, str]:
+    ) -> tuple[bool, str]:
+        del graph_states
         if callback_context.triggered_id == "loaded-graph-state":
-            return False, "", False, "Show source-predicate Sankey"
+            return False, "Show source-predicate Sankey"
         visible = bool(visible)
         if callback_context.triggered_id == "show-source-predicate-sankey" and show_clicks:
             visible = not visible
         if not visible:
-            return False, "", False, "Show source-predicate Sankey"
+            return False, "Show source-predicate Sankey"
+        return True, "Hide source-predicate Sankey"
 
+    @app.callback(
+        Output("source-predicate-panel-body", "children"),
+        Input("source-predicate-sankey-visible", "data"),
+        Input("source-predicate-top-n-slider", "value"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def render_source_predicate_sankey_panel(
+        visible: bool | None,
+        top_n_value: int | float | None,
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> Any:
+        if not visible:
+            return ""
         parsed = _single_cached_graph_with_schema(
             cache, kgx_client, url_client, session_id, graph_states
         )
         if parsed is None or parsed.schema is None:
-            return visible, _sankey_unavailable_message(), False, "Hide source-predicate Sankey"
+            return _sankey_unavailable_message()
         if not parsed.schema.source_predicate_counts:
-            return (
-                visible,
-                _source_predicate_unavailable_message(),
-                False,
-                "Hide source-predicate Sankey",
-            )
-        return (
-            True,
-            dcc.Graph(
-                id="source-predicate-sankey-graph",
-                figure=knowledge_source_predicate_sankey(
-                    parsed.schema.source_predicate_counts,
-                    top_n_sources=_slider_top_n(
-                        top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
-                    ),
-                    top_n_predicates=_slider_top_n(
-                        top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
-                    ),
+            return _source_predicate_unavailable_message()
+        return dcc.Graph(
+            id="source-predicate-sankey-graph",
+            figure=knowledge_source_predicate_sankey(
+                parsed.schema.source_predicate_counts,
+                top_n_sources=_slider_top_n(
+                    top_n_value,
+                    default=SOURCE_PREDICATE_SANKEY_TOP_N,
                 ),
-                className="inline-sankey-graph",
-                config={"responsive": True},
+                top_n_predicates=_slider_top_n(
+                    top_n_value,
+                    default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                ),
             ),
-            False,
-            "Hide source-predicate Sankey",
+            className="inline-sankey-graph",
+            config={"responsive": True},
         )
 
     @app.callback(
         Output("subject-sankey-visible", "data"),
+        Output("show-sankey", "children"),
+        Input("show-sankey", "n_clicks"),
+        Input("loaded-graph-state", "data"),
+        State("subject-sankey-visible", "data"),
+    )
+    def toggle_subject_sankey_panel(
+        show_clicks: int | None,
+        graph_states: list[GraphState] | GraphState | None,
+        visible: bool | None,
+    ) -> tuple[bool, str]:
+        del graph_states
+        if callback_context.triggered_id == "loaded-graph-state":
+            return False, "Show subject-predicate-object Sankey"
+        visible = bool(visible)
+        if callback_context.triggered_id == "show-sankey" and show_clicks:
+            visible = not visible
+        if not visible:
+            return False, "Show subject-predicate-object Sankey"
+        return True, "Hide subject-predicate-object Sankey"
+
+    @app.callback(
         Output("sankey-panel-body", "children"),
         Output("show-sankey", "disabled"),
-        Input("show-sankey", "n_clicks"),
+        Input("subject-sankey-visible", "data"),
         Input("sankey-subject-category-dropdown", "value"),
         Input("sankey-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
-        State("subject-sankey-visible", "data"),
         State("session-id", "data"),
     )
     def render_sankey_panel(
-        show_clicks: int | None,
+        visible: bool | None,
         selected_subject: str | None,
         top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
-        visible: bool | None,
         session_id: str | None,
-    ) -> tuple[bool, Any, bool]:
-        if callback_context.triggered_id == "loaded-graph-state":
-            return False, "", False
-        visible = bool(visible)
-        if callback_context.triggered_id == "show-sankey" and show_clicks:
-            visible = True
+    ) -> tuple[Any, bool]:
         if not visible:
-            return False, "", False
+            return "", False
 
         parsed = _single_cached_graph_with_schema(
             cache, kgx_client, url_client, session_id, graph_states
         )
         if parsed is None or parsed.schema is None:
-            return visible, _sankey_unavailable_message(), True
+            return _sankey_unavailable_message(), True
         subject_filter = (
             None
             if selected_subject in {None, ALL_SUBJECT_CATEGORIES_VALUE}
@@ -809,30 +826,25 @@ def register_callbacks(
             default=_predicate_sankey_top_n(subject_filter),
         )
         if subject_filter is None and selected_subject != ALL_SUBJECT_CATEGORIES_VALUE:
-            return visible, "", False
+            return "", False
         if not parsed.schema.edges:
             return (
-                visible,
                 html.Div(
                     className="empty-inline",
                     children=[html.P("No schema edge triples are available for this graph.")],
                 ),
                 True,
             )
-        return (
-            True,
-            dcc.Graph(
-                id="subject-predicate-object-sankey-graph",
-                figure=predicate_sankey(
-                    parsed.schema.edges,
-                    top_n=top_n,
-                    subject_filter=subject_filter,
-                ),
-                className="inline-sankey-graph",
-                config={"responsive": True},
+        return dcc.Graph(
+            id="subject-predicate-object-sankey-graph",
+            figure=predicate_sankey(
+                parsed.schema.edges,
+                top_n=top_n,
+                subject_filter=subject_filter,
             ),
-            False,
-        )
+            className="inline-sankey-graph",
+            config={"responsive": True},
+        ), False
 
 
 def _load_graph_result(

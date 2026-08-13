@@ -5,94 +5,106 @@
     "source-predicate-sankey-graph",
     "subject-predicate-object-sankey-graph",
   ];
-  const linkAlpha = 0.35;
-  const linkHighlightAlpha = 0.82;
-  const linkDimAlpha = 0.06;
-  const nodeDimAlpha = 0.2;
-
-  function withAlpha(color, alpha) {
-    if (typeof color !== "string") {
-      return color;
-    }
-    if (color.startsWith("rgba(") || color.startsWith("rgb(")) {
-      const rgb = color.replace(/^rgba?\(/, "").replace(/\)$/, "").split(",");
-      return `rgba(${rgb[0].trim()}, ${rgb[1].trim()}, ${rgb[2].trim()}, ${alpha})`;
-    }
-    const match = color.match(/^#([0-9a-fA-F]{6})$/);
-    if (!match) {
-      return color;
-    }
-    const hex = match[1];
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
+  const linkHighlightOpacity = "0.95";
+  const linkDimOpacity = "0.08";
+  const nodeHighlightOpacity = "1";
+  const nodeDimOpacity = "0.22";
 
   function asArray(value) {
-    return Array.isArray(value) ? value : [];
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (value && typeof value !== "string" && typeof value.length === "number") {
+      return Array.from(value);
+    }
+    return [];
   }
 
-  function highlightColors(trace, selectedNodeIndex) {
+  function connectedNodeIndexes(trace, selectedNodeIndex) {
+    if (!trace || !Number.isInteger(selectedNodeIndex)) {
+      return null;
+    }
     const sources = asArray(trace.link && trace.link.source);
     const targets = asArray(trace.link && trace.link.target);
-    const meta = trace.meta || {};
-    const baseLinkColors = asArray(meta.base_link_colors);
-    const baseNodeColors = asArray(meta.base_node_colors);
+    const labels = asArray(trace.node && trace.node.label);
     if (
       sources.length === 0 ||
       sources.length !== targets.length ||
-      baseLinkColors.length !== sources.length ||
-      baseNodeColors.length === 0
+      labels.length === 0
     ) {
+      return null;
+    }
+    if (selectedNodeIndex < 0 || selectedNodeIndex >= labels.length) {
       return null;
     }
 
     const connectedNodes = new Set([selectedNodeIndex]);
-    const linkColors = baseLinkColors.map((color, index) => {
+    const connectedLinks = sources.map((source, index) => {
       const isConnected =
         sources[index] === selectedNodeIndex || targets[index] === selectedNodeIndex;
       if (isConnected) {
         connectedNodes.add(sources[index]);
         connectedNodes.add(targets[index]);
       }
-      return withAlpha(color, isConnected ? linkHighlightAlpha : linkDimAlpha);
+      return isConnected;
     });
-    const nodeColors = baseNodeColors.map((color, index) =>
-      connectedNodes.has(index) ? color : withAlpha(color, nodeDimAlpha)
-    );
-    return { linkColors, nodeColors };
+    return { connectedLinks, connectedNodes };
   }
 
-  function resetColors(trace) {
-    const meta = trace && trace.meta ? trace.meta : {};
-    const baseLinkColors = asArray(meta.base_link_colors);
-    const baseNodeColors = asArray(meta.base_node_colors);
-    if (baseLinkColors.length === 0 || baseNodeColors.length === 0) {
-      return null;
-    }
-    return {
-      linkColors: baseLinkColors.map((color) => withAlpha(color, linkAlpha)),
-      nodeColors: baseNodeColors.slice(),
-    };
+  function resetDomHighlight(layer) {
+    sankeyLinks(layer).forEach((link) => {
+      link.style.opacity = "";
+      link.style.filter = "";
+    });
+    sankeyNodes(layer).forEach((node) => {
+      node.style.opacity = "";
+    });
   }
 
-  function restyleSankey(plot, colors) {
-    if (!plot || !colors || !window.Plotly) {
-      return;
+  function applyDomHighlight(layer, trace, selectedNodeIndex) {
+    const connected = connectedNodeIndexes(trace, selectedNodeIndex);
+    if (!connected) {
+      return false;
     }
-    window.Plotly.restyle(
-      plot,
-      {
-        "link.color": [colors.linkColors],
-        "node.color": [colors.nodeColors],
-      },
-      [0]
-    );
+    const links = sankeyLinks(layer);
+    const nodes = sankeyNodes(layer);
+    if (links.length < connected.connectedLinks.length || nodes.length <= selectedNodeIndex) {
+      return false;
+    }
+    links.slice(0, connected.connectedLinks.length).forEach((link, index) => {
+      const isConnected = connected.connectedLinks[index];
+      link.style.opacity = isConnected ? linkHighlightOpacity : linkDimOpacity;
+      link.style.filter = isConnected ? "saturate(1.12)" : "grayscale(0.35)";
+    });
+    nodes.forEach((node, index) => {
+      node.style.opacity = connected.connectedNodes.has(index)
+        ? nodeHighlightOpacity
+        : nodeDimOpacity;
+    });
+    return true;
   }
 
   function sankeyTrace(plot) {
-    return plot && Array.isArray(plot.data) && plot.data.length > 0 ? plot.data[0] : null;
+    if (!plot || !Array.isArray(plot.data) || plot.data.length === 0) {
+      return null;
+    }
+    const dataTrace = plot.data[0] || {};
+    const fullTrace = Array.isArray(plot._fullData) && plot._fullData.length > 0
+      ? plot._fullData[0] || {}
+      : {};
+    return {
+      ...fullTrace,
+      ...dataTrace,
+      link: {
+        ...(fullTrace.link || {}),
+        ...(dataTrace.link || {}),
+      },
+      node: {
+        ...(fullTrace.node || {}),
+        ...(dataTrace.node || {}),
+      },
+      meta: dataTrace.meta || fullTrace.meta,
+    };
   }
 
   function findPlot(root) {
@@ -113,23 +125,82 @@
     if (!nodeElement || !plot.contains(nodeElement)) {
       return null;
     }
-    const nodes = Array.from(plot.querySelectorAll(".sankey-node"));
+    const layer = nodeElement.closest(".sankey") || plot;
+    const datumIndex = sankeyDatumNodeIndex(nodeElement);
+    if (Number.isInteger(datumIndex)) {
+      return { index: datumIndex, layer };
+    }
+    const nodes = sankeyNodes(layer);
     const index = nodes.indexOf(nodeElement);
-    return index >= 0 ? index : null;
+    return index >= 0 ? { index, layer } : null;
   }
 
-  function toggleNodeSelection(root, plot, nodeIndex) {
-    if (nodeIndex === null) {
-      return;
+  function sankeyDatumNodeIndex(nodeElement) {
+    const candidates = [
+      nodeElement.__data__,
+      nodeElement.__data__ && nodeElement.__data__.node,
+      nodeElement.__data__ && nodeElement.__data__.point,
+      nodeElement.__data__ && nodeElement.__data__.data,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== "object") {
+        continue;
+      }
+      for (const key of ["pointNumber", "index", "i"]) {
+        if (Number.isInteger(candidate[key])) {
+          return candidate[key];
+        }
+      }
     }
-    const trace = sankeyTrace(plot);
-    if (root.__sankeySelectedNodeIndex === nodeIndex) {
+    return null;
+  }
+
+  function sankeyNodes(layer) {
+    return Array.from(layer.querySelectorAll(".sankey-node"));
+  }
+
+  function sankeyLinks(layer) {
+    return Array.from(layer.querySelectorAll(".sankey-link"));
+  }
+
+  function traceSignature(trace) {
+    if (!trace) {
+      return "";
+    }
+    const labels = asArray(trace.node && trace.node.label);
+    const sources = asArray(trace.link && trace.link.source);
+    const targets = asArray(trace.link && trace.link.target);
+    const values = asArray(trace.link && trace.link.value);
+    return [
+      labels.join("\u001f"),
+      sources.join(","),
+      targets.join(","),
+      values.length,
+    ].join("\u001e");
+  }
+
+  function syncTraceState(root, plot) {
+    const signature = traceSignature(sankeyTrace(plot));
+    if (root.__sankeyTraceSignature !== signature) {
+      root.__sankeyTraceSignature = signature;
       root.__sankeySelectedNodeIndex = null;
-      restyleSankey(plot, resetColors(trace));
+    }
+  }
+
+  function toggleNodeSelection(root, plot, selection) {
+    if (selection === null) {
       return;
     }
-    root.__sankeySelectedNodeIndex = nodeIndex;
-    restyleSankey(plot, highlightColors(trace, nodeIndex));
+    syncTraceState(root, plot);
+    const trace = sankeyTrace(plot);
+    if (root.__sankeySelectedNodeIndex === selection.index) {
+      root.__sankeySelectedNodeIndex = null;
+      resetDomHighlight(selection.layer);
+      return;
+    }
+    if (applyDomHighlight(selection.layer, trace, selection.index)) {
+      root.__sankeySelectedNodeIndex = selection.index;
+    }
   }
 
   function install(root) {
@@ -137,13 +208,14 @@
     if (!plot) {
       return;
     }
+    syncTraceState(root, plot);
     if (!root.__sankeyDomNodeClickInstalled) {
       root.__sankeyDomNodeClickInstalled = true;
       root.addEventListener("click", function (event) {
         const currentPlot = findPlot(root);
-        const nodeIndex = clickedDomNodeIndex(currentPlot, event.target);
-        if (nodeIndex !== null) {
-          toggleNodeSelection(root, currentPlot, nodeIndex);
+        const selection = clickedDomNodeIndex(currentPlot, event.target);
+        if (selection !== null) {
+          toggleNodeSelection(root, currentPlot, selection);
         }
       });
     }
