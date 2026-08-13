@@ -312,19 +312,13 @@ def layout() -> html.Div:
                                     ),
                                 ],
                             ),
-                            dcc.Loading(
-                                html.Div(
-                                    id="source-predicate-panel-body",
-                                    className="sankey-scroll-panel",
-                                ),
-                                parent_className="sankey-loading",
+                            html.Div(
+                                id="source-predicate-panel-body",
+                                className="sankey-scroll-panel",
                             ),
-                            dcc.Loading(
-                                html.Div(
-                                    id="sankey-panel-body",
-                                    className="sankey-scroll-panel",
-                                ),
-                                parent_className="sankey-loading",
+                            html.Div(
+                                id="sankey-panel-body",
+                                className="sankey-scroll-panel",
                             ),
                         ],
                     ),
