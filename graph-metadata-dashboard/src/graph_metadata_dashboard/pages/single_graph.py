@@ -63,7 +63,7 @@ def layout() -> html.Div:
                         [
                             html.P(
                                 "Select one or more graph releases from the Biomedical Data "
-                                "Translator KGX storage, paste a trusted metadata URL, or provide "
+                                "Translator KGX storage, paste a trusted metadata URL, or upload "
                                 "local metadata JSON. Select a single graph to summarize and "
                                 "visualize its metadata, or select multiple graphs to compare "
                                 "their metadata."
