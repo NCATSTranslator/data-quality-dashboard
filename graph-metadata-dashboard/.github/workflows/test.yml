@@ -1,9 +1,7 @@
-name: CI
+name: Tests and Lint
 
 on:
   push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
 
@@ -14,9 +12,6 @@ jobs:
   checks:
     name: Ruff and pytest
     runs-on: ubuntu-latest
-
-    env:
-      PYSTOW_HOME: ${{ runner.temp }}/pystow
 
     steps:
       - name: Check out repository
