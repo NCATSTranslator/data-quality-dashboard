@@ -436,8 +436,8 @@ body {
   overscroll-behavior: contain;
 }
 
-.sankey-scroll-panel:empty {
-  display: none;
+.sankey-scroll-panel:not([hidden]) {
+  min-height: min(70vh, 860px);
 }
 
 .inline-sankey-graph {
@@ -482,5 +482,6 @@ body {
 
   .sankey-scroll-panel {
     max-height: 74vh;
+    min-height: 62vh;
   }
 }
