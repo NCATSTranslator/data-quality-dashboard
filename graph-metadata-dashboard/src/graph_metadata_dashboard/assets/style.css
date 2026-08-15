@@ -250,12 +250,72 @@ body {
   gap: 0.35rem;
 }
 
-.sankey-slider-field label {
+.sankey-filter-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.sankey-filter-grid-compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sankey-filter-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sankey-slider-field label,
+.sankey-filter-field label {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.sankey-filter-field .Select-option,
+.sankey-filter-field .VirtualizedSelectOption {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.qualifier-summary {
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--muted);
+}
+
+.qualifier-summary h4 {
+  margin: 0 0 0.35rem;
+  color: var(--ink);
+}
+
+.qualifier-summary p {
+  margin: 0;
+}
+
+.qualifier-summary ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qualifier-summary li {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.07);
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .upload-selection,
@@ -478,6 +538,10 @@ body {
 
   .sankey-control-block {
     height: auto;
+  }
+
+  .sankey-filter-grid-compact {
+    grid-template-columns: 1fr;
   }
 
   .sankey-scroll-panel {
