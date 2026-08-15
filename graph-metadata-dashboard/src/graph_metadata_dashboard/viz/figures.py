@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Collection
+from dataclasses import replace
 from math import sqrt
 
 import plotly.graph_objects as go
@@ -260,6 +262,9 @@ def predicate_sankey(
     *,
     top_n: int | None = 40,
     subject_filter: str | None = None,
+    object_filters: Collection[str] | None = None,
+    predicate_filters: Collection[str] | None = None,
+    source_filters: Collection[str] | None = None,
     selected_node_label: str | None = None,
 ) -> go.Figure:
     # Compute the palette from the FULL subject vocabulary, before top-N filtering, so a
@@ -269,7 +274,13 @@ def predicate_sankey(
     })
     subject_color = _assign_palette(all_subject_categories)
 
-    candidate_edges = _filter_edges_by_subject(edges, subject_filter=subject_filter)
+    candidate_edges = filter_predicate_sankey_edges(
+        edges,
+        subject_filter=subject_filter,
+        object_filters=object_filters,
+        predicate_filters=predicate_filters,
+        source_filters=source_filters,
+    )
     selected_edges = _select_sankey_edges(candidate_edges, top_n=top_n)
     collapsed = _collapse_edges(selected_edges)
     labels = _sankey_labels(collapsed)
@@ -371,6 +382,7 @@ def predicate_sankey(
         selected_edges,
         top_n=top_n,
         subject_filter=subject_filter,
+        filters_applied=bool(object_filters or predicate_filters or source_filters),
     )
     fig.update_layout(
         title=title,
@@ -487,18 +499,92 @@ def knowledge_source_predicate_sankey(
     return fig
 
 
-def _filter_edges_by_subject(
+def filter_source_predicate_counts(
+    counts: tuple[KnowledgeSourcePredicateCount, ...],
+    *,
+    source_filters: Collection[str] | None = None,
+    predicate_filters: Collection[str] | None = None,
+) -> tuple[KnowledgeSourcePredicateCount, ...]:
+    selected_sources = set(source_filters or ())
+    selected_predicates = set(predicate_filters or ())
+    return tuple(
+        count
+        for count in counts
+        if (not selected_sources or count.source in selected_sources)
+        and (not selected_predicates or count.predicate in selected_predicates)
+    )
+
+
+def filter_predicate_sankey_edges(
     edges: tuple[EdgeTriple, ...],
     *,
-    subject_filter: str | None,
+    subject_filter: str | None = None,
+    object_filters: Collection[str] | None = None,
+    predicate_filters: Collection[str] | None = None,
+    source_filters: Collection[str] | None = None,
 ) -> tuple[EdgeTriple, ...]:
-    if subject_filter is None:
-        return edges
-    return tuple(
-        edge
-        for edge in edges
-        if (", ".join(edge.subject_category) or OTHER_LABEL) == subject_filter
+    selected_objects = set(object_filters or ())
+    selected_predicates = set(predicate_filters or ())
+    selected_sources = set(source_filters or ())
+    filtered_edges: list[EdgeTriple] = []
+    for edge in edges:
+        if subject_filter is not None and _edge_subject_label(edge) != subject_filter:
+            continue
+        if selected_objects and _edge_object_label(edge) not in selected_objects:
+            continue
+        if selected_predicates and edge.predicate not in selected_predicates:
+            continue
+        if not selected_sources:
+            filtered_edges.append(edge)
+            continue
+
+        source_count = sum(
+            edge.primary_knowledge_sources.get(source, 0) for source in selected_sources
+        )
+        if source_count > 0:
+            filtered_edges.append(replace(edge, count=source_count))
+    return tuple(filtered_edges)
+
+
+def selected_predicate_sankey_edges(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int | None = 40,
+    subject_filter: str | None = None,
+    object_filters: Collection[str] | None = None,
+    predicate_filters: Collection[str] | None = None,
+    source_filters: Collection[str] | None = None,
+) -> tuple[EdgeTriple, ...]:
+    return _select_sankey_edges(
+        filter_predicate_sankey_edges(
+            edges,
+            subject_filter=subject_filter,
+            object_filters=object_filters,
+            predicate_filters=predicate_filters,
+            source_filters=source_filters,
+        ),
+        top_n=top_n,
     )
+
+
+def qualifier_counts_for_edges(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int = 5,
+) -> list[tuple[str, int]]:
+    totals: defaultdict[str, int] = defaultdict(int)
+    for edge in edges:
+        for qualifier, count in edge.qualifiers.items():
+            totals[qualifier] += count
+    return sorted(totals.items(), key=lambda item: item[1], reverse=True)[:top_n]
+
+
+def _edge_subject_label(edge: EdgeTriple) -> str:
+    return ", ".join(edge.subject_category) or OTHER_LABEL
+
+
+def _edge_object_label(edge: EdgeTriple) -> str:
+    return ", ".join(edge.object_category) or OTHER_LABEL
 
 
 def _select_sankey_edges(
@@ -518,20 +604,28 @@ def _sankey_title(
     *,
     top_n: int | None,
     subject_filter: str | None,
+    filters_applied: bool,
 ) -> str:
+    filter_note = " matching filters" if filters_applied else ""
     if subject_filter is not None:
         relationship_count = len(candidate_edges)
         if len(selected_edges) < relationship_count:
             return (
                 f"Showing top {len(selected_edges)} of {relationship_count} relationship triples "
-                f"within {subject_filter} subject category"
+                f"within {subject_filter} subject category{filter_note}"
             )
-        return f"Showing {relationship_count} relationship triples within {subject_filter}" \
-        " subject category"
+        return (
+            f"Showing {relationship_count} relationship triples within {subject_filter} "
+            f"subject category{filter_note}"
+        )
 
     if top_n is None or top_n < 0 or len(candidate_edges) <= top_n:
+        if filters_applied:
+            return "All Matching Subject-Predicate-Object Relationship Triple Sankey Chart"
         return "All Subject-Predicate-Object Relationship Triple Sankey Chart"
 
+    if filters_applied:
+        return f"Top {top_n} Matching Subject-Predicate-Object Relationship Triple Sankey Chart"
     return f"Top {top_n} Subject-Predicate-Object Relationship Triple Sankey Chart"
 
 

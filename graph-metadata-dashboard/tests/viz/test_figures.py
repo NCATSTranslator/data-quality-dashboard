@@ -6,10 +6,13 @@ from graph_metadata_dashboard.viz.figures import (
     SANKEY_BASE_HEIGHT,
     SANKEY_DEFAULT_NODE_PAD,
     count_bar,
+    filter_source_predicate_counts,
     knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
+    qualifier_counts_for_edges,
     sankey_highlight_colors,
+    selected_predicate_sankey_edges,
     subgraph_contribution_bar,
 )
 from tests.conftest import load_fixture
@@ -108,6 +111,93 @@ def test_predicate_sankey_uses_consistent_all_category_compression() -> None:
     assert max(expanded_view.data[0].link.value) < 100_000_000
     assert round(max(expanded_view.data[0].link.value), 1) == 464.2
     assert expanded_view.data[0].link.customdata[0][1] == "100,000,000"
+
+
+def test_predicate_sankey_filters_by_source_predicate_and_object_category() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={"infores:source-a": 30, "infores:source-b": 70},
+            qualifiers={"qualified_predicate": 8},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:treats",
+            object_category=("biolink:Disease",),
+            count=80,
+            primary_knowledge_sources={"infores:source-a": 80},
+            qualifiers={"object_aspect_qualifier": 5},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:PhenotypicFeature",),
+            count=60,
+            primary_knowledge_sources={"infores:source-a": 10},
+            qualifiers={"qualified_predicate": 2},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+
+    figure = predicate_sankey(
+        edges,
+        top_n=None,
+        source_filters=("infores:source-a",),
+        predicate_filters=("biolink:related_to",),
+        object_filters=("biolink:Disease",),
+    )
+
+    assert len(figure.data[0].link.value) == 2
+    assert figure.data[0].link.customdata[0][1] == "30"
+
+
+def test_selected_predicate_sankey_edges_preserve_qualifier_context() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={"infores:source-a": 25},
+            qualifiers={"qualified_predicate": 8},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:treats",
+            object_category=("biolink:Disease",),
+            count=80,
+            primary_knowledge_sources={"infores:source-b": 80},
+            qualifiers={"object_aspect_qualifier": 5},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+
+    selected_edges = selected_predicate_sankey_edges(
+        edges,
+        top_n=None,
+        source_filters=("infores:source-a",),
+    )
+    qualifier_counts = qualifier_counts_for_edges(selected_edges)
+
+    assert len(selected_edges) == 1
+    assert selected_edges[0].count == 25
+    assert qualifier_counts == [("qualified_predicate", 8)]
 
 
 def test_predicate_sankey_highlights_links_connected_to_selected_node() -> None:
@@ -346,6 +436,34 @@ def test_knowledge_source_predicate_sankey_uses_stronger_compression_for_tiny_fl
 
     assert list(figure.data[0].link.value) == [100.0, 2.0]
     assert figure.data[0].link.customdata[1][2] == "16"
+
+
+def test_filter_source_predicate_counts_filters_both_columns() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount(
+            source="infores:source-a",
+            predicate="biolink:related_to",
+            count=100,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:source-a",
+            predicate="biolink:treats",
+            count=50,
+        ),
+        KnowledgeSourcePredicateCount(
+            source="infores:source-b",
+            predicate="biolink:related_to",
+            count=30,
+        ),
+    )
+
+    filtered = filter_source_predicate_counts(
+        counts,
+        source_filters=("infores:source-a",),
+        predicate_filters=("biolink:related_to",),
+    )
+
+    assert filtered == (counts[0],)
 
 
 def test_knowledge_source_predicate_sankey_highlights_selected_source_links() -> None:

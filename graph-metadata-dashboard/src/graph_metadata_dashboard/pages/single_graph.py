@@ -37,9 +37,13 @@ from graph_metadata_dashboard.parsers.models import (
     ParsedGraphMetadata,
 )
 from graph_metadata_dashboard.viz.figures import (
+    filter_predicate_sankey_edges,
+    filter_source_predicate_counts,
     knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
+    qualifier_counts_for_edges,
+    selected_predicate_sankey_edges,
 )
 
 GraphState = dict[str, Any]
@@ -212,10 +216,50 @@ def layout() -> html.Div:
                                             html.P(
                                                 "A two-column Sankey chart showing which knowledge "
                                                 "sources contribute to each predicate type. Use "
-                                                "the slider for interactive filtering by how many "
-                                                "top sources and predicates to show, sorted by "
-                                                "edge count.",
+                                                "the filters and slider to focus on selected "
+                                                "sources, predicates, or the highest-count flows.",
                                                 className="status-line",
+                                            ),
+                                            html.Div(
+                                                className="sankey-filter-grid",
+                                                children=[
+                                                    html.Div(
+                                                        className="sankey-filter-field",
+                                                        children=[
+                                                            html.Label(
+                                                                "Source",
+                                                                htmlFor=(
+                                                                    "source-predicate-source-filter"
+                                                                ),
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id=(
+                                                                    "source-predicate-source-filter"
+                                                                ),
+                                                                multi=True,
+                                                                placeholder="All sources",
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        className="sankey-filter-field",
+                                                        children=[
+                                                            html.Label(
+                                                                "Predicate",
+                                                                htmlFor=(
+                                                                    "source-predicate-predicate-filter"
+                                                                ),
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id=(
+                                                                    "source-predicate-predicate-filter"
+                                                                ),
+                                                                multi=True,
+                                                                placeholder="All predicates",
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
                                             ),
                                             html.Div(
                                                 className="sankey-slider-field",
@@ -263,15 +307,69 @@ def layout() -> html.Div:
                                                 "relationship triples within that selected "
                                                 "subject category, or select "
                                                 '"All categories"  to view relationship '
-                                                "triples across the whole graph. Use the slider "
-                                                "for interactive filtering by how many edge "
-                                                "triples to show, sorted by edge count.",
+                                                "triples across the whole graph. Refine by source, "
+                                                "predicate, and object category, then use the "
+                                                "slider to control how many highest-count triples "
+                                                "are shown.",
                                                 className="status-line",
                                             ),
                                             dcc.Dropdown(
                                                 id="sankey-subject-category-dropdown",
                                                 placeholder="Select subject category",
                                                 clearable=False,
+                                            ),
+                                            html.Div(
+                                                className=(
+                                                    "sankey-filter-grid "
+                                                    "sankey-filter-grid-compact"
+                                                ),
+                                                children=[
+                                                    html.Div(
+                                                        className="sankey-filter-field",
+                                                        children=[
+                                                            html.Label(
+                                                                "Source",
+                                                                htmlFor="sankey-source-filter",
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id="sankey-source-filter",
+                                                                multi=True,
+                                                                optionHeight=58,
+                                                                placeholder="All sources",
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        className="sankey-filter-field",
+                                                        children=[
+                                                            html.Label(
+                                                                "Predicate",
+                                                                htmlFor="sankey-predicate-filter",
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id="sankey-predicate-filter",
+                                                                multi=True,
+                                                                optionHeight=58,
+                                                                placeholder="All predicates",
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        className="sankey-filter-field",
+                                                        children=[
+                                                            html.Label(
+                                                                "Object category",
+                                                                htmlFor="sankey-object-category-filter",
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id="sankey-object-category-filter",
+                                                                multi=True,
+                                                                optionHeight=58,
+                                                                placeholder="All object categories",
+                                                            ),
+                                                        ],
+                                                    ),
+                                                ],
                                             ),
                                             html.Div(
                                                 className="sankey-slider-field",
@@ -638,15 +736,97 @@ def register_callbacks(
         return options, default_value, False
 
     @app.callback(
+        Output("source-predicate-source-filter", "options"),
+        Output("source-predicate-source-filter", "value"),
+        Output("source-predicate-source-filter", "disabled"),
+        Output("source-predicate-predicate-filter", "options"),
+        Output("source-predicate-predicate-filter", "value"),
+        Output("source-predicate-predicate-filter", "disabled"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def configure_source_predicate_filters(
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[
+        list[dict[str, str]],
+        list[str],
+        bool,
+        list[dict[str, str]],
+        list[str],
+        bool,
+    ]:
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return [], [], True, [], [], True
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
+        if parsed.schema is None or not parsed.schema.source_predicate_counts:
+            return [], [], True, [], [], True
+        source_options, predicate_options = _source_predicate_filter_options(
+            parsed.schema.source_predicate_counts
+        )
+        return source_options, [], False, predicate_options, [], False
+
+    @app.callback(
+        Output("sankey-source-filter", "options"),
+        Output("sankey-source-filter", "value"),
+        Output("sankey-source-filter", "disabled"),
+        Output("sankey-predicate-filter", "options"),
+        Output("sankey-predicate-filter", "value"),
+        Output("sankey-predicate-filter", "disabled"),
+        Output("sankey-object-category-filter", "options"),
+        Output("sankey-object-category-filter", "value"),
+        Output("sankey-object-category-filter", "disabled"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def configure_predicate_sankey_filters(
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[
+        list[dict[str, str]],
+        list[str],
+        bool,
+        list[dict[str, str]],
+        list[str],
+        bool,
+        list[dict[str, str]],
+        list[str],
+        bool,
+    ]:
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            return [], [], True, [], [], True, [], [], True
+        parsed = _ensure_schema_loaded(
+            cache, kgx_client, url_client, session_id, graph_state, parsed
+        )
+        if parsed.schema is None or not parsed.schema.edges:
+            return [], [], True, [], [], True, [], [], True
+        source_options, predicate_options, object_options = _predicate_sankey_filter_options(
+            parsed.schema.edges
+        )
+        return source_options, [], False, predicate_options, [], False, object_options, [], False
+
+    @app.callback(
         Output("sankey-top-n-slider", "value"),
         Output("sankey-top-n-slider", "max"),
         Output("sankey-top-n-slider", "marks"),
         Input("sankey-subject-category-dropdown", "value"),
+        Input("sankey-source-filter", "value"),
+        Input("sankey-predicate-filter", "value"),
+        Input("sankey-object-category-filter", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
     def configure_sankey_top_n_slider(
         selected_subject: str | None,
+        selected_sources: list[str] | str | None,
+        selected_predicates: list[str] | str | None,
+        selected_objects: list[str] | str | None,
         graph_states: list[GraphState] | GraphState | None,
         session_id: str | None,
     ) -> tuple[int, int, dict[int, str]]:
@@ -665,7 +845,14 @@ def register_callbacks(
         )
         if parsed.schema is None:
             return _sankey_slider_config(default_top_n, default_top_n)
-        max_top_n = _predicate_sankey_top_n_limit(parsed.schema.edges, subject_filter)
+        filtered_edges = filter_predicate_sankey_edges(
+            parsed.schema.edges,
+            subject_filter=subject_filter,
+            source_filters=_dropdown_values(selected_sources),
+            predicate_filters=_dropdown_values(selected_predicates),
+            object_filters=_dropdown_values(selected_objects),
+        )
+        max_top_n = max(1, len(filtered_edges))
         return _sankey_slider_config(
             default_top_n,
             max_top_n,
@@ -676,10 +863,14 @@ def register_callbacks(
         Output("source-predicate-top-n-slider", "value"),
         Output("source-predicate-top-n-slider", "max"),
         Output("source-predicate-top-n-slider", "marks"),
+        Input("source-predicate-source-filter", "value"),
+        Input("source-predicate-predicate-filter", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
     def configure_source_predicate_top_n_slider(
+        selected_sources: list[str] | str | None,
+        selected_predicates: list[str] | str | None,
         graph_states: list[GraphState] | GraphState | None,
         session_id: str | None,
     ) -> tuple[int, int, dict[int, str]]:
@@ -698,7 +889,12 @@ def register_callbacks(
                 SOURCE_PREDICATE_SANKEY_TOP_N,
                 SOURCE_PREDICATE_SANKEY_TOP_N,
             )
-        max_top_n = _source_predicate_top_n_limit(parsed.schema.source_predicate_counts)
+        filtered_counts = filter_source_predicate_counts(
+            parsed.schema.source_predicate_counts,
+            source_filters=_dropdown_values(selected_sources),
+            predicate_filters=_dropdown_values(selected_predicates),
+        )
+        max_top_n = _source_predicate_top_n_limit(filtered_counts)
         return _sankey_slider_config(
             SOURCE_PREDICATE_SANKEY_TOP_N,
             max_top_n,
@@ -731,12 +927,16 @@ def register_callbacks(
         Output("source-predicate-panel-body", "hidden"),
         Output("source-predicate-panel-body", "children"),
         Input("source-predicate-sankey-visible", "data"),
+        Input("source-predicate-source-filter", "value"),
+        Input("source-predicate-predicate-filter", "value"),
         Input("source-predicate-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
     )
     def render_source_predicate_sankey_panel(
         visible: bool | None,
+        selected_sources: list[str] | str | None,
+        selected_predicates: list[str] | str | None,
         top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
         session_id: str | None,
@@ -750,23 +950,45 @@ def register_callbacks(
             return False, _sankey_unavailable_message()
         if not parsed.schema.source_predicate_counts:
             return False, _source_predicate_unavailable_message()
+        source_filters = _dropdown_values(selected_sources)
+        predicate_filters = _dropdown_values(selected_predicates)
+        filtered_counts = filter_source_predicate_counts(
+            parsed.schema.source_predicate_counts,
+            source_filters=source_filters,
+            predicate_filters=predicate_filters,
+        )
+        if not filtered_counts:
+            return False, _empty_sankey_filter_message()
+        qualifier_edges = filter_predicate_sankey_edges(
+            parsed.schema.edges,
+            source_filters=source_filters,
+            predicate_filters=predicate_filters,
+        )
         return (
             False,
-            dcc.Graph(
-                id="source-predicate-sankey-graph",
-                figure=knowledge_source_predicate_sankey(
-                    parsed.schema.source_predicate_counts,
-                    top_n_sources=_slider_top_n(
-                        top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
+            html.Div(
+                children=[
+                    _qualifier_context_summary(
+                        qualifier_edges,
+                        scope_label="matching source and predicate filters",
                     ),
-                    top_n_predicates=_slider_top_n(
-                        top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                    dcc.Graph(
+                        id="source-predicate-sankey-graph",
+                        figure=knowledge_source_predicate_sankey(
+                            filtered_counts,
+                            top_n_sources=_slider_top_n(
+                                top_n_value,
+                                default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                            ),
+                            top_n_predicates=_slider_top_n(
+                                top_n_value,
+                                default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                            ),
+                        ),
+                        className="inline-sankey-graph",
+                        config={"responsive": True},
                     ),
-                ),
-                className="inline-sankey-graph",
-                config={"responsive": True},
+                ],
             ),
         )
 
@@ -798,6 +1020,9 @@ def register_callbacks(
         Output("show-sankey", "disabled"),
         Input("subject-sankey-visible", "data"),
         Input("sankey-subject-category-dropdown", "value"),
+        Input("sankey-source-filter", "value"),
+        Input("sankey-predicate-filter", "value"),
+        Input("sankey-object-category-filter", "value"),
         Input("sankey-top-n-slider", "value"),
         Input("loaded-graph-state", "data"),
         State("session-id", "data"),
@@ -805,6 +1030,9 @@ def register_callbacks(
     def render_sankey_panel(
         visible: bool | None,
         selected_subject: str | None,
+        selected_sources: list[str] | str | None,
+        selected_predicates: list[str] | str | None,
+        selected_objects: list[str] | str | None,
         top_n_value: int | float | None,
         graph_states: list[GraphState] | GraphState | None,
         session_id: str | None,
@@ -837,17 +1065,41 @@ def register_callbacks(
                 ),
                 True,
             )
+        source_filters = _dropdown_values(selected_sources)
+        predicate_filters = _dropdown_values(selected_predicates)
+        object_filters = _dropdown_values(selected_objects)
+        selected_edges = selected_predicate_sankey_edges(
+            parsed.schema.edges,
+            top_n=top_n,
+            subject_filter=subject_filter,
+            source_filters=source_filters,
+            predicate_filters=predicate_filters,
+            object_filters=object_filters,
+        )
+        if not selected_edges:
+            return False, _empty_sankey_filter_message(), False
         return (
             False,
-            dcc.Graph(
-                id="subject-predicate-object-sankey-graph",
-                figure=predicate_sankey(
-                    parsed.schema.edges,
-                    top_n=top_n,
-                    subject_filter=subject_filter,
-                ),
-                className="inline-sankey-graph",
-                config={"responsive": True},
+            html.Div(
+                children=[
+                    _qualifier_context_summary(
+                        selected_edges,
+                        scope_label="displayed subject-predicate-object flows",
+                    ),
+                    dcc.Graph(
+                        id="subject-predicate-object-sankey-graph",
+                        figure=predicate_sankey(
+                            parsed.schema.edges,
+                            top_n=top_n,
+                            subject_filter=subject_filter,
+                            source_filters=source_filters,
+                            predicate_filters=predicate_filters,
+                            object_filters=object_filters,
+                        ),
+                        className="inline-sankey-graph",
+                        config={"responsive": True},
+                    ),
+                ],
             ),
             False,
         )
@@ -1100,26 +1352,65 @@ def _subject_category_options(edges: tuple[EdgeTriple, ...]) -> list[dict[str, s
     ]
 
 
+def _source_predicate_filter_options(
+    counts: tuple[KnowledgeSourcePredicateCount, ...],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    source_totals: dict[str, int] = {}
+    predicate_totals: dict[str, int] = {}
+    for count in counts:
+        source_totals[count.source] = source_totals.get(count.source, 0) + count.count
+        predicate_totals[count.predicate] = (
+            predicate_totals.get(count.predicate, 0) + count.count
+        )
+    return _count_options(source_totals), _count_options(predicate_totals)
+
+
+def _predicate_sankey_filter_options(
+    edges: tuple[EdgeTriple, ...],
+) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, str]]]:
+    source_totals: dict[str, int] = {}
+    predicate_totals: dict[str, int] = {}
+    object_totals: dict[str, int] = {}
+    for edge in edges:
+        predicate_totals[edge.predicate] = predicate_totals.get(edge.predicate, 0) + edge.count
+        object_label = _edge_object_label(edge)
+        object_totals[object_label] = object_totals.get(object_label, 0) + edge.count
+        for source, count in edge.primary_knowledge_sources.items():
+            source_totals[source] = source_totals.get(source, 0) + count
+    return (
+        _count_options(source_totals),
+        _count_options(predicate_totals),
+        _count_options(object_totals),
+    )
+
+
+def _count_options(totals: dict[str, int]) -> list[dict[str, str]]:
+    return [
+        {"label": f"{label} ({count:,})", "value": label}
+        for label, count in sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    ]
+
+
 def _edge_subject_label(edge: EdgeTriple) -> str:
     return ", ".join(edge.subject_category) or "Other"
+
+
+def _edge_object_label(edge: EdgeTriple) -> str:
+    return ", ".join(edge.object_category) or "Other"
+
+
+def _dropdown_values(value: list[str] | str | None) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, list):
+        return tuple(item for item in value if isinstance(item, str))
+    return ()
 
 
 def _predicate_sankey_top_n(subject_filter: str | None) -> int:
     if subject_filter is None:
         return ALL_CATEGORY_SANKEY_TOP_N
     return SUBJECT_CATEGORY_SANKEY_TOP_N
-
-
-def _predicate_sankey_top_n_limit(
-    edges: tuple[EdgeTriple, ...],
-    subject_filter: str | None,
-) -> int:
-    if subject_filter is None:
-        return max(1, len(edges))
-    return max(
-        1,
-        sum(1 for edge in edges if _edge_subject_label(edge) == subject_filter),
-    )
 
 
 def _source_predicate_top_n_limit(
@@ -1195,6 +1486,42 @@ def _source_predicate_unavailable_message() -> html.Div:
             ),
         ],
     )
+
+
+def _empty_sankey_filter_message() -> html.Div:
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.H4("No matching Sankey flows"),
+            html.P("Adjust or clear the Sankey filters to show matching relationship flows."),
+        ],
+    )
+
+
+def _qualifier_context_summary(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    scope_label: str,
+) -> html.Div:
+    qualifier_counts = qualifier_counts_for_edges(edges, top_n=5)
+    edge_count = sum(edge.count for edge in edges)
+    children: list[Any] = [
+        html.P(
+            f"Quailifer counts covering {edge_count:,} edges from {len(edges):,} {scope_label}: "
+        ),
+    ]
+    if qualifier_counts:
+        children.append(
+            html.Ul(
+                [
+                    html.Li(f"{qualifier}: {count:,}")
+                    for qualifier, count in qualifier_counts
+                ]
+            )
+        )
+    else:
+        children.append(html.P("No qualifier counts are reported for these flows."))
+    return html.Div(className="qualifier-summary", children=children)
 
 
 def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
