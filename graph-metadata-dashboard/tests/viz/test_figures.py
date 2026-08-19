@@ -14,6 +14,7 @@ from graph_metadata_dashboard.viz.figures import (
     sankey_highlight_colors,
     selected_predicate_sankey_edges,
     subgraph_contribution_bar,
+    subject_object_category_pair_bar,
 )
 from tests.conftest import load_fixture
 
@@ -25,6 +26,55 @@ def test_node_category_bar_limits_top_n() -> None:
     figure = node_category_bar(parsed.schema.nodes, top_n=5)
 
     assert len(figure.data[0].x) == 5
+
+
+def test_subject_object_category_pair_bar_aggregates_pairs() -> None:
+    edges = (
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:related_to",
+            object_category=("biolink:Disease",),
+            count=100,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:Gene",),
+            predicate="biolink:causes",
+            object_category=("biolink:Disease",),
+            count=25,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+        EdgeTriple(
+            subject_category=("biolink:ChemicalEntity",),
+            predicate="biolink:treats",
+            object_category=("biolink:Disease",),
+            count=50,
+            primary_knowledge_sources={},
+            qualifiers={},
+            attributes={},
+            subject_id_prefixes={},
+            object_id_prefixes={},
+        ),
+    )
+
+    figure = subject_object_category_pair_bar(edges, top_n=1)
+
+    assert list(figure.data[0].x) == [0]
+    assert list(figure.data[0].y) == [125]
+    assert figure.data[0].orientation is None
+    assert figure.layout.xaxis.ticktext[0] == "biolink:Gene -> biolink:Disease"
+    assert "(" not in figure.layout.xaxis.ticktext[0]
+    assert figure.data[0].customdata[0][0] == "biolink:Gene"
+    assert figure.data[0].customdata[0][1] == "biolink:Disease"
+    assert figure.data[0].customdata[0][3] == "2"
 
 
 def test_predicate_sankey_builds_limited_flows() -> None:
