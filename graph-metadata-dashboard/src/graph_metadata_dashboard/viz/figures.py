@@ -30,6 +30,11 @@ SOURCE_PREDICATE_COMPRESSION_RATIO = 25
 SOURCE_PREDICATE_STRONG_COMPRESSION_RATIO = 1_000
 PREDICATE_SANKEY_COMPRESSION_RATIO = 25
 PREDICATE_SANKEY_STRONG_COMPRESSION_RATIO = 1_000
+BAR_HOVERLABEL = {
+    "bgcolor": "rgba(15, 23, 42, 0.86)",
+    "bordercolor": "rgba(255, 255, 255, 0.55)",
+    "font": {"color": "white", "size": 12},
+}
 
 
 def node_category_bar(
@@ -54,10 +59,89 @@ def node_category_bar(
         title = f"Top {top_n} Node Category Contribution"
     fig.update_layout(
         title=title,
-        xaxis_title="Category",
+        xaxis_title="Node category",
         yaxis_title="Node count",
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
         yaxis=_yaxis_config(log_scale),
+        hoverlabel=BAR_HOVERLABEL,
+    )
+    return fig
+
+
+def subject_object_category_pair_bar(
+    edges: tuple[EdgeTriple, ...],
+    *,
+    top_n: int = 40,
+    log_scale: bool = True,
+) -> go.Figure:
+    totals: defaultdict[tuple[str, str], int] = defaultdict(int)
+    predicates: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+    for edge in edges:
+        subject = _edge_subject_label(edge)
+        obj = _edge_object_label(edge)
+        key = (subject, obj)
+        totals[key] += edge.count
+        predicates[key].add(edge.predicate)
+
+    values = sorted(totals.items(), key=lambda item: item[1], reverse=True)[:top_n]
+    labels = [
+        _truncate_label(f"{subject} -> {obj}", max_length=42)
+        for (subject, obj), _ in values
+    ]
+    positions = list(range(len(values)))
+    counts = [count for _, count in values]
+    hover_data = [
+        [
+            subject,
+            obj,
+            f"{count:,}",
+            f"{len(predicates[(subject, obj)]):,}",
+            _predicate_preview(predicates[(subject, obj)]),
+        ]
+        for (subject, obj), count in values
+    ]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=positions,
+                y=counts,
+                customdata=hover_data,
+                hovertemplate=(
+                    "Subject category: %{customdata[0]}"
+                    "<br>Object category: %{customdata[1]}"
+                    "<br>Edge count: %{customdata[2]}"
+                    "<br>Predicate types: %{customdata[3]}"
+                    "<br>Top predicates: %{customdata[4]}"
+                    "<extra></extra>"
+                ),
+                marker_color="#2563eb",
+            )
+        ]
+    )
+    if len(totals) <= top_n:
+        title = f"{len(totals)} Subject-Object Category Pair Contribution"
+    else:
+        title = f"Top {top_n} Subject-Object Category Pair Contribution"
+    fig.update_layout(
+        title=title,
+        xaxis_title="Subject category -> object category",
+        yaxis_title="Edge count",
+        margin={
+            "l": 48,
+            "r": 24,
+            "t": 56,
+            "b": _bottom_margin_for_labels(labels),
+        },
+        xaxis={
+            "automargin": True,
+            "tickangle": -35,
+            "tickmode": "array",
+            "tickvals": positions,
+            "ticktext": labels,
+        },
+        yaxis=_yaxis_config(log_scale),
+        hoverlabel=BAR_HOVERLABEL,
     )
     return fig
 
@@ -126,6 +210,7 @@ def subgraph_contribution_bar(
         },
         yaxis=_yaxis_config(log_scale),
         xaxis={"automargin": True, "tickangle": -35},
+        hoverlabel=BAR_HOVERLABEL,
     )
     return fig
 
@@ -156,6 +241,7 @@ def count_bar(
         yaxis_title=yaxis_title,
         margin={"l": 48, "r": 24, "t": 56, "b": 120},
         yaxis=_yaxis_config(log_scale),
+        hoverlabel=BAR_HOVERLABEL,
     )
     return fig
 
@@ -962,6 +1048,13 @@ def _subgraph_hover_label(source: SubgraphSource) -> str:
 
 def _format_optional_count(value: int | None) -> str:
     return f"{value:,}" if value is not None else "Unknown"
+
+
+def _predicate_preview(predicates: set[str], *, limit: int = 5) -> str:
+    ordered = sorted(predicates)
+    if len(ordered) <= limit:
+        return ", ".join(ordered)
+    return f"{', '.join(ordered[:limit])}, +{len(ordered) - limit} more"
 
 
 def _unique_labels(labels: list[str]) -> list[str]:

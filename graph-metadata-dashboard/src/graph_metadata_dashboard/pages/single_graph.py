@@ -44,6 +44,7 @@ from graph_metadata_dashboard.viz.figures import (
     predicate_sankey,
     qualifier_counts_for_edges,
     selected_predicate_sankey_edges,
+    subject_object_category_pair_bar,
 )
 
 GraphState = dict[str, Any]
@@ -60,6 +61,7 @@ def layout() -> html.Div:
             dcc.Store(id="loaded-graph-state", storage_type="session"),
             dcc.Store(id="source-predicate-sankey-visible"),
             dcc.Store(id="subject-sankey-visible"),
+            dcc.Store(id="category-pair-summary-visible"),
             html.Section(
                 className="intro-card",
                 children=[
@@ -197,14 +199,40 @@ def layout() -> html.Div:
                         className="content-card",
                         style={"display": "none"},
                         children=[
-                            html.H3("Predicate Composition"),
-                            html.P(
-                                "View this graph's predicates from two perspectives. One shows "
-                                "which knowledge sources contribute to each predicate type. The "
-                                "other shows which entity types those predicates connect. Click "
-                                "a Sankey node to select it with its connected flows highlighted; "
-                                "click it again to deselect it and reset the view.",
-                                className="status-line",
+                            html.Div(
+                                className="section-heading-row",
+                                children=[
+                                    html.Div(
+                                        children=[
+                                            html.H3("Predicate Composition"),
+                                            html.P(
+                                                "View this graph's predicates from two "
+                                                "perspectives. One shows which knowledge "
+                                                "sources contribute to each predicate type. "
+                                                "The other shows which entity types those "
+                                                "predicates connect. Click a Sankey node "
+                                                "to select it with its connected flows "
+                                                "highlighted; click it again to deselect "
+                                                "it and reset the view.",
+                                                className="status-line",
+                                            ),
+                                        ],
+                                    ),
+                                    html.Button(
+                                        "Show subject-object category pairs",
+                                        id="show-category-pair-summary",
+                                        n_clicks=0,
+                                        type="button",
+                                        className=(
+                                            "button button-secondary "
+                                            "category-pair-toggle-button"
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                id="category-pair-summary-panel",
+                                hidden=True,
                             ),
                             html.Div(
                                 className="sankey-control-grid",
@@ -709,6 +737,62 @@ def register_callbacks(
     )
     def toggle_sankey_action(graph_states: list[GraphState] | GraphState | None) -> dict[str, str]:
         return {} if len(_normalize_graph_states(graph_states)) == 1 else {"display": "none"}
+
+    @app.callback(
+        Output("category-pair-summary-visible", "data"),
+        Output("show-category-pair-summary", "children"),
+        Input("show-category-pair-summary", "n_clicks"),
+        Input("loaded-graph-state", "data"),
+        State("category-pair-summary-visible", "data"),
+    )
+    def toggle_category_pair_summary(
+        show_clicks: int | None,
+        graph_states: list[GraphState] | GraphState | None,
+        visible: bool | None,
+    ) -> tuple[bool, str]:
+        del graph_states
+        if callback_context.triggered_id == "loaded-graph-state":
+            return False, "Show subject-object category pairs"
+        visible = bool(visible)
+        if callback_context.triggered_id == "show-category-pair-summary" and show_clicks:
+            visible = not visible
+        if not visible:
+            return False, "Show subject-object category pairs"
+        return True, "Hide subject-object category pairs"
+
+    @app.callback(
+        Output("category-pair-summary-panel", "hidden"),
+        Output("category-pair-summary-panel", "children"),
+        Input("category-pair-summary-visible", "data"),
+        Input("loaded-graph-state", "data"),
+        State("session-id", "data"),
+    )
+    def render_category_pair_summary(
+        visible: bool | None,
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> tuple[bool, Any]:
+        if not visible:
+            return True, ""
+        parsed = _single_cached_graph_with_schema(
+            cache, kgx_client, url_client, session_id, graph_states
+        )
+        if parsed is None or parsed.schema is None:
+            return False, _sankey_unavailable_message()
+        if not parsed.schema.edges:
+            return False, html.Div(
+                className="empty-inline",
+                children=[
+                    html.P("No schema edge triples are available for this graph."),
+                ],
+            )
+        return False, html.Div(
+            className="category-pair-summary",
+            children=[
+                html.H4("Subject-Object Category Pairs"),
+                dcc.Graph(figure=subject_object_category_pair_bar(parsed.schema.edges)),
+            ],
+        )
 
     @app.callback(
         Output("sankey-subject-category-dropdown", "options"),
