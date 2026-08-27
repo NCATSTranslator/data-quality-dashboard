@@ -73,6 +73,7 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
                 html.Th("Edges"),
                 html.Th("Sources"),
                 html.Th("Subgraphs"),
+                html.Th("Types"),
             ]
         ),
         html.Tr(
@@ -83,6 +84,7 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
                 html.Td(_baseline_cell(_format_count(comparisons[0].baseline.edge_count))),
                 html.Td(_baseline_cell(_format_count(comparisons[0].baseline.source_count))),
                 html.Td(_baseline_cell(_format_count(comparisons[0].baseline.subgraph_count))),
+                html.Td(_baseline_cell("Baseline")),
             ]
         ),
     ]
@@ -123,6 +125,7 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
                             max_count=max_subgraph_changes,
                         )
                     ),
+                    html.Td(_schema_type_churn_overview_cell(pair.schema)),
                 ]
             )
         )
@@ -246,35 +249,14 @@ def _schema_diff_section(schema: SchemaDiffSummary) -> html.Div:
         children=[
             html.H4("Schema-Level Differences"),
             html.P(
-                "Node and edge rows summarize ORION schema diff entries; the aggregate table "
-                "below summarizes schema-level rollups such as predicates and source-predicate "
-                "composition.",
+                "Node and edge rows summarize graph schema differences against the baseline graph; "
+                "the summary rollups below show global composition changes returned by ORION "
+                "for nodes and edges.",
                 className="status-line",
             ),
             _schema_entry_tables(schema),
-            _schema_change_table(schema),
+            _schema_summary_rollup_table(schema),
         ],
-    )
-
-
-def _schema_change_table(schema: SchemaDiffSummary) -> html.Div:
-    rows = _schema_change_rows(schema)
-    return _table_section(
-        "Aggregate Schema Summary Changes",
-        rows,
-        columns=[
-            {"name": "Area", "id": "area"},
-            {"name": "Schema Item", "id": "item"},
-            {"name": "Status", "id": "status"},
-            {"name": "Baseline", "id": "old"},
-            {"name": "Comparison", "id": "new"},
-            {"name": "Delta", "id": "delta"},
-        ],
-        empty_message="No aggregate schema summary changes found.",
-        heading_level=5,
-        page_size=20,
-        sortable=True,
-        filterable=True,
     )
 
 
@@ -292,6 +274,85 @@ def _schema_entry_tables(schema: SchemaDiffSummary) -> html.Div:
     return html.Div(className="schema-entry-grid", children=sections)
 
 
+def _schema_summary_rollup_table(schema: SchemaDiffSummary) -> html.Div:
+    rows: list[tuple[str, object]] = [
+        ("Node type churn", _schema_type_churn_cell(schema.node_type_churn)),
+        ("Edge type churn", _schema_type_churn_cell(schema.edge_type_churn)),
+        ("Node ID prefixes", _schema_map_cell(schema.node_id_prefix_changes)),
+        ("Node attributes", _schema_map_cell(schema.node_attribute_changes)),
+        ("Edge predicates", _schema_map_cell(schema.edge_predicate_changes)),
+        ("Edge primary sources", _schema_map_cell(schema.edge_source_changes)),
+        (
+            "Edge source-predicate composition",
+            _schema_map_cell(schema.edge_source_predicate_changes),
+        ),
+        ("Edge qualifiers", _schema_map_cell(schema.edge_qualifier_changes)),
+        ("Edge attributes", _schema_map_cell(schema.edge_attribute_changes)),
+    ]
+    rows = [
+        (label, content)
+        for label, content in rows
+        if content is not None
+    ]
+    if not rows:
+        return html.Div(
+            className="comparison-section empty-inline",
+            children=[
+                html.H5("Schema Summary Rollups"),
+                html.P("No aggregate schema summary changes found."),
+            ],
+        )
+    return html.Div(
+        className="schema-entry-section schema-summary-rollup",
+        children=[
+            html.H5("Schema Summary Rollups"),
+            html.P(
+                "Global rollups from ORION's nodes_summary and edges_summary diffs. These "
+                "show composition shifts across the whole graph, complementary to the "
+                "category/triple rows above.",
+                className="comparison-table-note",
+            ),
+            _schema_rich_table(
+                headers=("Summary rollup", "Changed values"),
+                rows=[
+                    (
+                        html.Strong(label),
+                        content,
+                    )
+                    for label, content in rows
+                ],
+            ),
+        ],
+    )
+
+
+def _schema_type_churn_cell(churn: dict[str, int] | None) -> html.Div | None:
+    if not churn:
+        return None
+    labels = (
+        ("added", "Added"),
+        ("removed", "Removed"),
+        ("changed", "Changed"),
+        ("unchanged", "Unchanged"),
+    )
+    values = [(label, churn.get(key, 0)) for key, label in labels if churn.get(key, 0)]
+    if not values:
+        return None
+    return html.Div(
+        className="schema-type-churn-cell",
+        children=[
+            html.Div(
+                className=f"schema-type-churn-item schema-type-churn-{label.lower()}",
+                children=[
+                    html.Strong(f"{value:,}"),
+                    html.Span(label),
+                ],
+            )
+            for label, value in values
+        ],
+    )
+
+
 def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None:
     if not changes:
         return None
@@ -306,6 +367,7 @@ def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None
                 className="comparison-table-note",
             ),
             _schema_rich_table(
+                class_name="schema-node-table",
                 headers=("Node category", "Node count", "ID prefixes", "Attributes"),
                 rows=[
                     (
@@ -335,6 +397,7 @@ def _edge_schema_table(changes: tuple[EdgeSchemaChange, ...]) -> html.Div | None
                 className="comparison-table-note",
             ),
             _schema_rich_table(
+                class_name="schema-edge-table",
                 headers=(
                     "Edge triple",
                     "Edge count",
@@ -365,12 +428,13 @@ def _schema_rich_table(
     *,
     headers: tuple[str, ...],
     rows: list[tuple[object, ...]],
+    class_name: str = "",
 ) -> html.Div:
     return html.Div(
         className="schema-rich-table-wrap",
         children=[
             html.Table(
-                className="schema-rich-table",
+                className=f"schema-rich-table {class_name}".strip(),
                 children=[
                     html.Thead(html.Tr([html.Th(header) for header in headers])),
                     html.Tbody(
@@ -397,18 +461,19 @@ def _schema_count_cell(delta: CountDelta, *, max_delta: int) -> html.Div:
     return html.Div(className="schema-count-cell", children=children)
 
 
-def _schema_map_cell(changes: tuple[MapEntryChange, ...]) -> html.Div:
+def _schema_map_cell(
+    changes: tuple[MapEntryChange, ...],
+) -> html.Div:
     if not changes:
         return html.Div(className="schema-map-cell muted-cell", children="No changes")
     max_delta = _max_count_delta(change.count for change in changes)
+    children: list[object] = [
+        _schema_map_group(status, grouped_changes, max_delta=max_delta)
+        for status, grouped_changes in _group_map_changes(changes)
+    ]
     return html.Div(
         className="schema-map-cell",
-        children=[
-            *[
-                _schema_map_group(status, grouped_changes, max_delta=max_delta)
-                for status, grouped_changes in _group_map_changes(changes)
-            ],
-        ],
+        children=children,
     )
 
 
@@ -453,26 +518,6 @@ def _group_map_changes(
         for status in ("added", "removed", "changed")
         if (matching := tuple(change for change in changes if change.status == status))
     ]
-
-
-def _schema_change_rows(schema: SchemaDiffSummary) -> list[dict[str, str]]:
-    rows: list[tuple[int, dict[str, str]]] = []
-    rows.extend(_map_change_rows("Node ID prefix", schema.node_id_prefix_changes))
-    rows.extend(_map_change_rows("Node attribute", schema.node_attribute_changes))
-    rows.extend(_map_change_rows("Edge predicate", schema.edge_predicate_changes))
-    rows.extend(_map_change_rows("Edge primary source", schema.edge_source_changes))
-    rows.extend(_map_change_rows("Edge source predicate", schema.edge_source_predicate_changes))
-    rows.extend(_map_change_rows("Edge qualifier", schema.edge_qualifier_changes))
-    rows.extend(_map_change_rows("Edge attribute", schema.edge_attribute_changes))
-    ranked = sorted(rows, key=lambda item: item[0], reverse=True)
-    return [row for _, row in ranked[:75]]
-
-
-def _map_change_rows(
-    area: str,
-    changes: tuple[MapEntryChange, ...],
-) -> list[tuple[int, dict[str, str]]]:
-    return [_ranked_row(area, change.label, change.status, change.count) for change in changes]
 
 
 def _baseline_cell(value: str) -> html.Div:
@@ -520,6 +565,46 @@ def _change_count_cell(
     return html.Div(
         className="comparison-overview-cell",
         children=children,
+    )
+
+
+def _schema_type_churn_overview_cell(schema: SchemaDiffSummary) -> html.Div:
+    if not schema.available:
+        return html.Div(
+            className="comparison-overview-cell",
+            children=[html.Strong("Unavailable")],
+        )
+    node_summary = _type_churn_summary(schema.node_type_churn, label="Nodes")
+    edge_summary = _type_churn_summary(schema.edge_type_churn, label="Edges")
+    if not node_summary and not edge_summary:
+        return html.Div(
+            className="comparison-overview-cell",
+            children=[html.Strong("No type churn")],
+        )
+    return html.Div(
+        className="comparison-overview-cell schema-type-overview",
+        children=[item for item in (node_summary, edge_summary) if item],
+    )
+
+
+def _type_churn_summary(churn: dict[str, int] | None, *, label: str) -> html.Span | None:
+    if not churn:
+        return None
+    added = churn.get("added", 0)
+    removed = churn.get("removed", 0)
+    changed = churn.get("changed", 0)
+    if not (added or removed or changed):
+        return None
+    parts = []
+    if added:
+        parts.append(f"+{added:,}")
+    if removed:
+        parts.append(f"-{removed:,}")
+    if changed:
+        parts.append(f"{changed:,} changed")
+    return html.Span(
+        f"{label}: {' / '.join(parts)}",
+        className="comparison-overview-note",
     )
 
 
@@ -633,25 +718,6 @@ def _max_count_delta(deltas: Iterable[CountDelta]) -> int:
 
 def _edge_schema_change_label(change: EdgeSchemaChange) -> str:
     return f"{change.subject_category} - {change.predicate} - {change.object_category}"
-
-
-def _ranked_row(
-    area: str,
-    item: str,
-    status: str,
-    delta: CountDelta,
-) -> tuple[int, dict[str, str]]:
-    return (
-        abs(delta.delta or 0),
-        {
-            "area": area,
-            "item": item,
-            "status": status,
-            "old": _format_count(delta.old),
-            "new": _format_count(delta.new),
-            "delta": _format_delta(delta),
-        },
-    )
 
 
 def _table_section(

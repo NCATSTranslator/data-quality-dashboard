@@ -99,18 +99,14 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     overview_table = _find_elements_by_class(dashboard, "comparison-overview-table")[0]
     source_dialogs = _find_elements_by_type(dashboard, "Dialog")
 
-    assert "To be implemented" not in text
     assert "Comparison Overview" in text
-    assert "Graph-Level Comparison" not in text
-    assert "Schema impact" not in text
+    assert "Types" in text
     assert "Alliance -> Translator KG Open" in text
     assert len(_find_elements_by_class(dashboard, "comparison-glyph")) > 0
     assert len(_find_elements_by_type(dashboard, "Details")) == 2
     assert len(source_dialogs) == 1
     source_tables = _find_datatables(source_dialogs[0])
     assert "Show changed sources" in text
-    assert "Metadata changes" not in _flatten_text(overview_table)
-    assert "Baseline" not in _flatten_text(overview_table)
     assert "Alliance Copy" in _flatten_text(overview_table)
     assert "No changes" in _flatten_text(overview_table)
     assert source_tables
@@ -120,6 +116,72 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert "Translator KG Open Version" in source_column_names
     assert "Alliance License" in source_column_names
     assert "Translator KG Open License" in source_column_names
+
+
+def test_comparison_dashboard_uses_selected_baseline() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    cache = InMemoryMetadataCache()
+    session_id = "test-session"
+    first = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    second = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    cache.set(session_id, "first", first)
+    cache.set(session_id, "second", second)
+
+    dashboard = page_module._comparison_dashboard(
+        cache,
+        KgxStorageClient("https://kgx-storage.example/releases"),
+        UrlMetadataClient(("https://metadata.example",)),
+        session_id,
+        [
+            {"cache_key": "first", "kind": "upload", "label": "Alliance"},
+            {"cache_key": "second", "kind": "upload", "label": "Translator KG Open"},
+        ],
+        "second",
+    )
+    text = " ".join(_flatten_text(dashboard))
+
+    assert "Using Translator KG Open as the baseline" in text
+    assert "Translator KG Open -> Alliance" in text
+
+
+def test_loaded_graphs_summary_includes_baseline_selector() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    summary = page_module._loaded_graphs_summary(
+        [
+            {"cache_key": "first", "kind": "upload", "label": "Alliance"},
+            {"cache_key": "second", "kind": "upload", "label": "Translator KG Open"},
+        ]
+    )
+    text = " ".join(_flatten_text(summary))
+    dropdowns = _find_elements_by_type(summary, "Dropdown")
+
+    assert "Comparison baseline" in text
+    assert dropdowns
+    assert dropdowns[0].id == "comparison-baseline-selector"
+    assert dropdowns[0].value == "first"
+
+
+def test_merge_graph_states_appends_new_and_replaces_existing() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    merged = page_module._merge_graph_states(
+        [
+            {"cache_key": "first", "label": "First"},
+            {"cache_key": "second", "label": "Old second"},
+        ],
+        [
+            {"cache_key": "second", "label": "New second"},
+            {"cache_key": "third", "label": "Third"},
+        ],
+    )
+
+    assert [state["cache_key"] for state in merged] == ["first", "second", "third"]
+    assert merged[1]["label"] == "New second"
 
 
 def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
@@ -179,7 +241,9 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Primary sources" in text
     assert "Subject prefixes" in text
     assert "Object prefixes" in text
-    assert "Aggregate Schema Summary Changes" in text
+    assert "Schema Summary Rollups" in text
+    assert "Node type churn" in text
+    assert "Edge type churn" in text
 
 
 def _registered_page_module(module_basename: str) -> object:

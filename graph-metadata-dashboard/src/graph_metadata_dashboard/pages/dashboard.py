@@ -88,7 +88,7 @@ def layout() -> html.Div:
                             html.H3("Select Metadata"),
                             html.P(
                                 "Choose from KGX releases, trusted URLs, local uploads, or combine "
-                                "sources before loading selected metadata.",
+                                "sources before adding selected metadata.",
                                 className="status-line",
                             ),
                         ]
@@ -113,6 +113,10 @@ def layout() -> html.Div:
                                 className="selector-subsection",
                                 children=[
                                     html.H4("Metadata URL"),
+                                    html.P(
+                                        "Load a URL, then paste another to add more remote graphs.",
+                                        className="selector-help",
+                                    ),
                                     dcc.Input(
                                         id="graph-metadata-url",
                                         className="metadata-url-input",
@@ -137,6 +141,11 @@ def layout() -> html.Div:
                                 className="selector-subsection",
                                 children=[
                                     html.H4("Upload Metadata"),
+                                    html.P(
+                                        "Load one metadata/schema pair at a time; the files clear "
+                                        "after loading so another upload can be added.",
+                                        className="selector-help",
+                                    ),
                                     dcc.Upload(
                                         id="upload-graph-metadata",
                                         className="upload-box",
@@ -168,7 +177,7 @@ def layout() -> html.Div:
                         className="button-row selection-actions",
                         children=[
                             html.Button(
-                                "Load selected metadata",
+                                "Add selected metadata",
                                 id="load-selected-metadata",
                                 n_clicks=0,
                                 type="button",
@@ -614,6 +623,7 @@ def register_callbacks(
             if not selected_sources and not graph_contents and not selected_graph_url:
                 return _load_graph_result(status="")
 
+            existing_states = _normalize_graph_states(graph_states)
             loaded_states = []
             for source_id in selected_sources:
                 loaded_states.append(_load_kgx_graph(cache, kgx_client, session_id, source_id))
@@ -640,14 +650,32 @@ def register_callbacks(
                     )
                 )
 
+            merged_states = _merge_graph_states(existing_states, loaded_states)
+            reset_one_time_inputs = {
+                "upload_contents": None,
+                "upload_filename": None,
+                "schema_contents": None,
+                "schema_filename": None,
+                "graph_url": "",
+                "schema_url": "",
+            }
+
             if len(loaded_states) == 1:
                 return _load_graph_result(
-                    graph_state=loaded_states,
-                    status=f"Loaded {loaded_states[0]['label']}.",
+                    graph_state=merged_states,
+                    status=(
+                        f"Loaded {loaded_states[0]['label']}. "
+                        f"Active selection has {len(merged_states)} graph(s)."
+                    ),
+                    **reset_one_time_inputs,
                 )
             return _load_graph_result(
-                graph_state=loaded_states,
-                status=f"Loaded {len(loaded_states)} graphs for comparison.",
+                graph_state=merged_states,
+                status=(
+                    f"Loaded {len(loaded_states)} graphs. "
+                    f"Active selection has {len(merged_states)} graph(s)."
+                ),
+                **reset_one_time_inputs,
             )
         except Exception as error:
             return _load_graph_result(status=f"Could not load graph metadata: {error}")
@@ -667,10 +695,12 @@ def register_callbacks(
     @app.callback(
         Output("overview-panel", "children"),
         Input("loaded-graph-state", "data"),
+        Input("comparison-baseline-selector", "value"),
         State("session-id", "data"),
     )
     def render_overview(
         graph_states: list[GraphState] | GraphState | None,
+        baseline_cache_key: str | None,
         session_id: str | None,
     ) -> Any:
         states = _normalize_graph_states(graph_states)
@@ -681,6 +711,7 @@ def register_callbacks(
                 url_client,
                 session_id,
                 states,
+                baseline_cache_key,
             )
         graph_state = _single_graph_state(states)
         parsed = _get_cached_graph(cache, session_id, graph_state)
@@ -1330,6 +1361,29 @@ def _normalize_graph_states(
     ]
 
 
+def _merge_graph_states(
+    existing_states: list[GraphState],
+    loaded_states: list[GraphState],
+) -> list[GraphState]:
+    merged = list(existing_states)
+    index_by_cache_key = {
+        state["cache_key"]: index
+        for index, state in enumerate(merged)
+        if isinstance(state.get("cache_key"), str)
+    }
+    for state in loaded_states:
+        cache_key = state.get("cache_key")
+        if not isinstance(cache_key, str):
+            continue
+        existing_index = index_by_cache_key.get(cache_key)
+        if existing_index is None:
+            index_by_cache_key[cache_key] = len(merged)
+            merged.append(state)
+        else:
+            merged[existing_index] = state
+    return merged
+
+
 def _single_graph_state(graph_states: list[GraphState]) -> GraphState | None:
     return graph_states[0] if len(graph_states) == 1 else None
 
@@ -1351,6 +1405,8 @@ def _prune_unselected_url_states(
     graph_url: str | None,
 ) -> list[GraphState]:
     selected_graph_url = _clean_url(graph_url)
+    if selected_graph_url is None:
+        return _normalize_graph_states(graph_states)
     pruned: list[GraphState] = []
     for state in _normalize_graph_states(graph_states):
         if state.get("kind") != "url" or state.get("graph_url") == selected_graph_url:
@@ -1616,6 +1672,28 @@ def _qualifier_context_summary(
 
 
 def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
+    baseline_selector = (
+        html.Div(
+            className="baseline-selector",
+            children=[
+                html.Label("Comparison baseline", htmlFor="comparison-baseline-selector"),
+                dcc.Dropdown(
+                    id="comparison-baseline-selector",
+                    options=[
+                        {
+                            "label": _graph_label(state),
+                            "value": state["cache_key"],
+                        }
+                        for state in graph_states
+                    ],
+                    value=graph_states[0]["cache_key"],
+                    clearable=False,
+                ),
+            ],
+        )
+        if len(graph_states) > 1
+        else ""
+    )
     return html.Div(
         className="content-card selection-summary",
         children=[
@@ -1625,9 +1703,10 @@ def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
                     html.Div(
                         children=[
                             html.P("Active selection", className="eyebrow"),
-                            html.H3(_mode_label(len(graph_states))),                            
+                            html.H3(_mode_label(len(graph_states))),
                         ]
                     ),
+                    baseline_selector,
                 ],
             ),
             html.Div(
@@ -1654,7 +1733,9 @@ def _comparison_dashboard(
     url_client: UrlMetadataClient,
     session_id: str | None,
     graph_states: list[GraphState],
+    baseline_cache_key: str | None = None,
 ) -> html.Div:
+    graph_states = _order_graph_states_for_baseline(graph_states, baseline_cache_key)
     parsed_graphs: list[ParsedGraphMetadata] = []
     labels: list[str] = []
     load_errors: list[str] = []
@@ -1672,6 +1753,30 @@ def _comparison_dashboard(
         labels.append(label)
 
     return comparison_dashboard(parsed_graphs, labels, load_errors)
+
+
+def _order_graph_states_for_baseline(
+    graph_states: list[GraphState],
+    baseline_cache_key: str | None,
+) -> list[GraphState]:
+    if not baseline_cache_key:
+        return graph_states
+    baseline_index = next(
+        (
+            index
+            for index, state in enumerate(graph_states)
+            if state.get("cache_key") == baseline_cache_key
+        ),
+        None,
+    )
+    if baseline_index is None:
+        return graph_states
+    baseline = graph_states[baseline_index]
+    return [
+        baseline,
+        *graph_states[:baseline_index],
+        *graph_states[baseline_index + 1 :],
+    ]
 
 
 def _empty_state() -> html.Div:
