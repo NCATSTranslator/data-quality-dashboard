@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from dash import (
@@ -114,7 +115,8 @@ def layout() -> html.Div:
                                 children=[
                                     html.H4("Metadata URL"),
                                     html.P(
-                                        "Load a URL, then paste another to add more remote graphs.",
+                                        "Input a URL to add to selection; input another to add "
+                                        "more to selection if needed.",
                                         className="selector-help",
                                     ),
                                     dcc.Input(
@@ -142,8 +144,9 @@ def layout() -> html.Div:
                                 children=[
                                     html.H4("Upload Metadata"),
                                     html.P(
-                                        "Load one metadata/schema pair at a time; the files clear "
-                                        "after loading so another upload can be added.",
+                                        "Upload one metadata/schema pair at a time to add to "
+                                        "selection; the files clear after adding so another "
+                                        "upload can be added.",
                                         className="selector-help",
                                     ),
                                     dcc.Upload(
@@ -192,6 +195,10 @@ def layout() -> html.Div:
                                 disabled=True,
                                 className="button button-quiet reset-selection-button",
                             ),
+                            html.Div(
+                                id="load-status",
+                                className="status-line load-status-inline",
+                            ),
                         ],
                     ),
                 ],
@@ -199,7 +206,6 @@ def layout() -> html.Div:
             html.Div(
                 className="results-region",
                 children=[
-                    html.Div(id="load-status", className="status-line"),
                     html.Div(id="loaded-graphs-panel"),
                     html.Div(id="overview-panel"),
                     html.Div(id="provenance-panel"),
@@ -610,7 +616,7 @@ def register_callbacks(
             )
         if trigger == "graph-metadata-url":
             return _load_graph_result(
-                graph_state=_prune_unselected_url_states(graph_states, graph_url)
+                graph_state=_normalize_graph_states(graph_states)
             )
 
         if trigger != "load-selected-metadata":
@@ -663,18 +669,12 @@ def register_callbacks(
             if len(loaded_states) == 1:
                 return _load_graph_result(
                     graph_state=merged_states,
-                    status=(
-                        f"Loaded {loaded_states[0]['label']}. "
-                        f"Active selection has {len(merged_states)} graph(s)."
-                    ),
+                    status=f"Loaded {loaded_states[0]['label']}.",
                     **reset_one_time_inputs,
                 )
             return _load_graph_result(
                 graph_state=merged_states,
-                status=(
-                    f"Loaded {len(loaded_states)} graphs. "
-                    f"Active selection has {len(merged_states)} graph(s)."
-                ),
+                status=f"Loaded {len(loaded_states)} graphs.",
                 **reset_one_time_inputs,
             )
         except Exception as error:
@@ -1292,7 +1292,13 @@ def _load_uploaded_graph(
     parsed = parse_graph_metadata(source.load_graph_metadata(), schema_data=schema_data)
     upload_cache_key = f"{source.source_key}:{uuid4().hex}"
     state = _cache_graph(cache, session_id, upload_cache_key, parsed)
-    state.update({"kind": "upload", "label": source.label})
+    state.update(
+        {
+            "kind": "upload",
+            "label": parsed.name or source.label,
+            "release_version": parsed.release_version,
+        }
+    )
     return state
 
 
@@ -1316,6 +1322,7 @@ def _load_url_graph(
             "kind": "url",
             "graph_url": graph_url,
             "schema_url": schema_url,
+            "release_version": parsed.release_version,
             "label": parsed.name or source.label,
         }
     )
@@ -1396,20 +1403,6 @@ def _prune_unselected_kgx_states(
     pruned: list[GraphState] = []
     for state in _normalize_graph_states(graph_states):
         if state.get("kind") != "kgx" or state.get("source_id") in selected_sources:
-            pruned.append(state)
-    return pruned
-
-
-def _prune_unselected_url_states(
-    graph_states: list[GraphState] | GraphState | None,
-    graph_url: str | None,
-) -> list[GraphState]:
-    selected_graph_url = _clean_url(graph_url)
-    if selected_graph_url is None:
-        return _normalize_graph_states(graph_states)
-    pruned: list[GraphState] = []
-    for state in _normalize_graph_states(graph_states):
-        if state.get("kind") != "url" or state.get("graph_url") == selected_graph_url:
             pruned.append(state)
     return pruned
 
@@ -1679,13 +1672,7 @@ def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
                 html.Label("Comparison baseline", htmlFor="comparison-baseline-selector"),
                 dcc.Dropdown(
                     id="comparison-baseline-selector",
-                    options=[
-                        {
-                            "label": _graph_label(state),
-                            "value": state["cache_key"],
-                        }
-                        for state in graph_states
-                    ],
+                    options=_baseline_selector_options(graph_states),
                     value=graph_states[0]["cache_key"],
                     clearable=False,
                 ),
@@ -1725,6 +1712,44 @@ def _graph_chip(graph_state: GraphState) -> html.Div:
             html.Span(_graph_metadata_line(graph_state)),
         ],
     )
+
+
+def _baseline_selector_options(graph_states: list[GraphState]) -> list[dict[str, str]]:
+    label_counts: dict[str, int] = {}
+    for state in graph_states:
+        label = _graph_label(state)
+        label_counts[label] = label_counts.get(label, 0) + 1
+    return [
+        {
+            "label": _baseline_selector_label(
+                state,
+                duplicated=label_counts[_graph_label(state)] > 1,
+            ),
+            "value": state["cache_key"],
+        }
+        for state in graph_states
+        if isinstance(state.get("cache_key"), str)
+    ]
+
+
+def _baseline_selector_label(graph_state: GraphState, *, duplicated: bool) -> str:
+    label = _graph_label(graph_state)
+    if not duplicated:
+        return label
+    release = graph_state.get("release_version")
+    if isinstance(release, str) and release:
+        return f"{label} - {release}"
+    return f"{label} - {_compact_graph_state_context(graph_state)}"
+
+
+def _compact_graph_state_context(graph_state: GraphState) -> str:
+    graph_url = graph_state.get("graph_url")
+    if isinstance(graph_url, str) and graph_url:
+        parsed_url = urlparse(graph_url)
+        parts = [part for part in parsed_url.path.split("/") if part]
+        compact_path = "/".join(parts[-3:]) if parts else parsed_url.netloc
+        return compact_path or parsed_url.netloc
+    return _graph_metadata_line(graph_state)
 
 
 def _comparison_dashboard(
@@ -1814,8 +1839,7 @@ def _graph_metadata_line(graph_state: GraphState) -> str:
     if kind == "upload":
         return "Uploaded metadata"
     if kind == "url":
-        graph_url = graph_state.get("graph_url")
-        return f"Remote metadata - {graph_url}" if isinstance(graph_url, str) else "Remote metadata"
+        return graph_state.get("graph_url")
     return "Loaded metadata"
 
 

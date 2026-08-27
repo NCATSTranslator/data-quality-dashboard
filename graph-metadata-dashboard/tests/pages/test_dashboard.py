@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import replace
 from importlib import import_module
 
@@ -163,6 +165,127 @@ def test_loaded_graphs_summary_includes_baseline_selector() -> None:
     assert dropdowns
     assert dropdowns[0].id == "comparison-baseline-selector"
     assert dropdowns[0].value == "first"
+    assert [option["label"] for option in dropdowns[0].options] == [
+        "Alliance",
+        "Translator KG Open",
+    ]
+
+
+def test_baseline_selector_disambiguates_duplicate_graph_names() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    options = page_module._baseline_selector_options(
+        [
+            {
+                "cache_key": "first",
+                "kind": "url",
+                "label": "ROBOKOP",
+                "release_version": "2026-01-01",
+            },
+            {
+                "cache_key": "second",
+                "kind": "url",
+                "label": "ROBOKOP",
+                "release_version": "2026-02-01",
+            },
+            {
+                "cache_key": "third",
+                "kind": "url",
+                "label": "Translator KG Open",
+                "release_version": "2026-02-01",
+            },
+        ]
+    )
+
+    assert [option["label"] for option in options] == [
+        "ROBOKOP - 2026-01-01",
+        "ROBOKOP - 2026-02-01",
+        "Translator KG Open",
+    ]
+
+
+def test_baseline_selector_uses_compact_url_fallback_for_duplicate_graph_names() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    options = page_module._baseline_selector_options(
+        [
+            {
+                "cache_key": "first",
+                "kind": "url",
+                "label": "ROBOKOP",
+                "graph_url": (
+                    "https://kgx-storage.ci.transltr.io/releases/RobokopKG/"
+                    "2026_01_01/graph-metadata.json"
+                ),
+            },
+            {
+                "cache_key": "second",
+                "kind": "url",
+                "label": "ROBOKOP",
+                "graph_url": (
+                    "https://kgx-storage.ci.transltr.io/releases/RobokopKG/"
+                    "2026_02_01/graph-metadata.json"
+                ),
+            },
+        ]
+    )
+
+    assert [option["label"] for option in options] == [
+        "ROBOKOP - RobokopKG/2026_01_01/graph-metadata.json",
+        "ROBOKOP - RobokopKG/2026_02_01/graph-metadata.json",
+    ]
+
+
+def test_uploaded_graph_state_keeps_parsed_release_version() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    payload = {
+        "name": "Example Graph",
+        "version": "2026_05_07",
+    }
+    contents = (
+        "data:application/json;base64,"
+        + base64.b64encode(json.dumps(payload).encode()).decode()
+    )
+
+    state = page_module._load_uploaded_graph(
+        cache,
+        "test-session",
+        contents,
+        "graph-metadata.json",
+        None,
+    )
+
+    assert state["label"] == "Example Graph"
+    assert state["release_version"] == "2026_05_07"
+
+
+def test_url_graph_state_keeps_parsed_release_version() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    url_client = _FakeUrlClient(
+        {
+            "https://metadata.example/graph-metadata.json": {
+                "name": "Example Graph",
+                "version": "2026_05_07",
+            }
+        }
+    )
+
+    state = page_module._load_url_graph(
+        cache,
+        url_client,
+        "test-session",
+        "https://metadata.example/graph-metadata.json",
+        None,
+    )
+
+    assert state["label"] == "Example Graph"
+    assert state["release_version"] == "2026_05_07"
 
 
 def test_merge_graph_states_appends_new_and_replaces_existing() -> None:
@@ -182,6 +305,27 @@ def test_merge_graph_states_appends_new_and_replaces_existing() -> None:
 
     assert [state["cache_key"] for state in merged] == ["first", "second", "third"]
     assert merged[1]["label"] == "New second"
+
+
+def test_url_input_edit_preserves_loaded_url_graphs() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    states = [
+        {
+            "cache_key": "url:first",
+            "kind": "url",
+            "graph_url": "https://metadata.example/first/graph-metadata.json",
+        },
+        {
+            "cache_key": "url:second",
+            "kind": "url",
+            "graph_url": "https://metadata.example/second/graph-metadata.json",
+        },
+    ]
+
+    preserved = page_module._normalize_graph_states(states)
+
+    assert preserved == states
 
 
 def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
@@ -307,3 +451,11 @@ def _find_elements_by_type(value: object, type_name: str) -> list[object]:
         return found
     found.extend(_find_elements_by_type(children, type_name))
     return found
+
+
+class _FakeUrlClient:
+    def __init__(self, payloads: dict[str, dict[str, object]]) -> None:
+        self.payloads = payloads
+
+    def load_json(self, url: str) -> dict[str, object]:
+        return self.payloads[url]

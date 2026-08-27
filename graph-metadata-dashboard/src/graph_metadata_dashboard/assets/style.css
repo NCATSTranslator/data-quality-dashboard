@@ -191,6 +191,11 @@ body {
   border-top: 1px solid var(--line);
 }
 
+.load-status-inline {
+  flex: 1 1 18rem;
+  margin: 0;
+}
+
 .upload-box {
   border: 1.5px dashed rgba(15, 118, 110, 0.5);
   border-radius: 20px;
