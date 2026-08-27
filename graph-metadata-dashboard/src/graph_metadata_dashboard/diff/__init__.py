@@ -1,0 +1,33 @@
+from graph_metadata_dashboard.diff.comparison import (
+    ComparisonResult,
+    CountDelta,
+    EdgeSchemaChange,
+    EdgeTypeCountChange,
+    FieldDifference,
+    GraphComparison,
+    GraphSummary,
+    MapEntryChange,
+    NodeSchemaChange,
+    SchemaDiffSummary,
+    SourceChange,
+    SubgraphChange,
+    TypeCountChange,
+    compare,
+)
+
+__all__ = [
+    "CountDelta",
+    "ComparisonResult",
+    "EdgeSchemaChange",
+    "EdgeTypeCountChange",
+    "FieldDifference",
+    "GraphComparison",
+    "GraphSummary",
+    "MapEntryChange",
+    "NodeSchemaChange",
+    "SchemaDiffSummary",
+    "SourceChange",
+    "SubgraphChange",
+    "TypeCountChange",
+    "compare",
+]

@@ -18,6 +18,7 @@ from dash import (
 )
 
 from graph_metadata_dashboard.cache import MetadataCache
+from graph_metadata_dashboard.components.comparison import comparison_dashboard
 from graph_metadata_dashboard.components.single_graph import (
     provenance_contribution,
     upload_selection_status,
@@ -456,7 +457,7 @@ def layout() -> html.Div:
     )
 
 
-register_page(__name__, path="/", name="Single Graph")
+register_page(__name__, path="/", name="Dashboard")
 
 
 def register_callbacks(
@@ -674,7 +675,13 @@ def register_callbacks(
     ) -> Any:
         states = _normalize_graph_states(graph_states)
         if len(states) > 1:
-            return _comparison_placeholder(states)
+            return _comparison_dashboard(
+                cache,
+                kgx_client,
+                url_client,
+                session_id,
+                states,
+            )
         graph_state = _single_graph_state(states)
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
@@ -1641,21 +1648,30 @@ def _graph_chip(graph_state: GraphState) -> html.Div:
     )
 
 
-def _comparison_placeholder(graph_states: list[GraphState]) -> html.Div:
-    return html.Div(
-        className="content-card comparison-placeholder",
-        children=[
-            html.P("Graph Comparison", className="eyebrow"),
-            html.H2("Graph comparison visualizations"),
-            html.P(
-                "To be implemented"
-            ),
-            html.Div(
-                className="graph-chip-row",
-                children=[_graph_chip(state) for state in graph_states],
-            ),
-        ],
-    )
+def _comparison_dashboard(
+    cache: MetadataCache,
+    kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
+    session_id: str | None,
+    graph_states: list[GraphState],
+) -> html.Div:
+    parsed_graphs: list[ParsedGraphMetadata] = []
+    labels: list[str] = []
+    load_errors: list[str] = []
+    for state in graph_states:
+        label = _graph_label(state)
+        parsed = _get_cached_graph(cache, session_id, state)
+        if parsed is None:
+            load_errors.append(f"{label}: metadata was not found in the session cache.")
+            continue
+        try:
+            parsed = _ensure_schema_loaded(cache, kgx_client, url_client, session_id, state, parsed)
+        except Exception as error:
+            load_errors.append(f"{label}: schema could not be loaded ({error}).")
+        parsed_graphs.append(parsed)
+        labels.append(label)
+
+    return comparison_dashboard(parsed_graphs, labels, load_errors)
 
 
 def _empty_state() -> html.Div:

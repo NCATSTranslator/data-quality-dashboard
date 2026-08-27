@@ -406,11 +406,269 @@ body {
   word-break: break-word;
 }
 
-.comparison-placeholder {
+.comparison-dashboard {
   border-color: rgba(180, 83, 9, 0.24);
   background:
     linear-gradient(135deg, rgba(255, 250, 240, 0.94), rgba(238, 246, 241, 0.9)),
     var(--card);
+}
+
+.comparison-section {
+  margin: 1rem 0;
+}
+
+.comparison-section h4,
+.comparison-section h5 {
+  margin: 0.85rem 0 0.55rem;
+  letter-spacing: -0.02em;
+}
+
+.comparison-pair-card {
+  margin-top: 1.1rem;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 22px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.comparison-pair-card summary {
+  cursor: pointer;
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.comparison-warning-list {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.comparison-overview-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.comparison-overview-table th,
+.comparison-overview-table td {
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.comparison-overview-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.comparison-overview-cell {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 9rem;
+}
+
+.comparison-overview-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.comparison-dialog-open {
+  justify-self: start;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+.comparison-glyph {
+  width: 100%;
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.comparison-glyph-bar {
+  display: block;
+  height: 100%;
+  min-width: 0.25rem;
+  border-radius: inherit;
+}
+
+.comparison-glyph-positive .comparison-glyph-bar {
+  background: #2563eb;
+}
+
+.comparison-glyph-negative .comparison-glyph-bar {
+  background: #dc2626;
+}
+
+.comparison-glyph-neutral .comparison-glyph-bar {
+  background: #64748b;
+}
+
+.schema-entry-grid {
+  display: grid;
+  gap: 1rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.schema-entry-section {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.schema-entry-section h5 {
+  margin: 0 0 0.35rem;
+}
+
+.comparison-table-note {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.schema-rich-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.schema-rich-table {
+  width: 100%;
+  min-width: 58rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.schema-rich-table th,
+.schema-rich-table td {
+  max-width: 24rem;
+  padding: 0.65rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.schema-rich-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.schema-count-cell,
+.schema-map-cell {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 8.5rem;
+}
+
+.schema-map-summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.schema-map-group {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.schema-map-group + .schema-map-group {
+  margin-top: 0.3rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--line);
+}
+
+.schema-map-group-heading {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.schema-map-group-added .schema-map-group-heading {
+  color: #2563eb;
+}
+
+.schema-map-group-removed .schema-map-group-heading {
+  color: #dc2626;
+}
+
+.schema-map-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(5rem, 0.55fr);
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.schema-map-label {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.schema-map-delta {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.schema-map-delta span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.muted-cell {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.comparison-dialog {
+  width: min(72rem, calc(100vw - 2rem));
+  max-height: min(82vh, 54rem);
+  border: 0;
+  border-radius: 24px;
+  padding: 0;
+  background: transparent;
+}
+
+.comparison-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.comparison-dialog-card {
+  max-height: min(82vh, 54rem);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 1rem;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.comparison-warning-list {
+  border: 1px solid rgba(180, 83, 9, 0.26);
+  border-radius: 16px;
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.9rem;
+  background: rgba(180, 83, 9, 0.08);
+}
+
+.comparison-warning-list p {
+  margin: 0.25rem 0;
 }
 
 .overview-heading h2 {
