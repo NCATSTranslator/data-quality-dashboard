@@ -103,12 +103,15 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
 
     assert "Comparison Overview" in text
     assert "Types" in text
-    assert "Alliance -> Translator KG Open" in text
+    assert "Schema-Level Differences:" in text
+    assert "Alliance" in text
+    assert "Translator KG Open" in text
     assert len(_find_elements_by_class(dashboard, "comparison-glyph")) > 0
+    assert len(_find_elements_by_class(dashboard, "source-change-action-row")) == 1
     assert len(_find_elements_by_type(dashboard, "Details")) == 2
     assert len(source_dialogs) == 1
     source_tables = _find_datatables(source_dialogs[0])
-    assert "Show changed sources" in text
+    assert "Show changes" in text
     assert "Alliance Copy" in _flatten_text(overview_table)
     assert "No changes" in _flatten_text(overview_table)
     assert source_tables
@@ -377,6 +380,8 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
         ],
     )
     text = " ".join(_flatten_text(dashboard))
+    overview_table = _find_elements_by_class(dashboard, "comparison-overview-table")[0]
+    overview_text = " ".join(_flatten_text(overview_table))
 
     assert "Node Category Changes" in text
     assert "ID prefixes" in text
@@ -385,9 +390,11 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Primary sources" in text
     assert "Subject prefixes" in text
     assert "Object prefixes" in text
-    assert "Schema Summary Rollups" in text
-    assert "Node type churn" in text
-    assert "Edge type churn" in text
+    assert "Overall Node and Edge Composition Summary Changes" in text
+    assert "Node type" in text
+    assert "Edge type" in text
+    assert "Nodes:" in overview_text
+    assert "Edges:" in overview_text
 
 
 def _registered_page_module(module_basename: str) -> object:

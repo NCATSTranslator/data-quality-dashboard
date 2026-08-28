@@ -122,8 +122,8 @@ class SchemaDiffSummary:
     message: str
     node_total: CountDelta | None = None
     edge_total: CountDelta | None = None
-    node_type_churn: dict[str, int] | None = None
-    edge_type_churn: dict[str, int] | None = None
+    node_type_count: dict[str, int] | None = None
+    edge_type_count: dict[str, int] | None = None
     node_changes: tuple[NodeSchemaChange, ...] = ()
     edge_changes: tuple[EdgeSchemaChange, ...] = ()
     node_diffs: tuple[TypeCountChange, ...] = ()
@@ -411,8 +411,8 @@ def _schema_diff_summary(
         message="",
         node_total=_count_delta_from_diff(nodes_summary.get("total_count")),
         edge_total=_count_delta_from_diff(edges_summary.get("total_count")),
-        node_type_churn=_int_mapping(nodes_summary.get("types")),
-        edge_type_churn=_int_mapping(edges_summary.get("types")),
+        node_type_count=_int_mapping(nodes_summary.get("types")),
+        edge_type_count=_int_mapping(edges_summary.get("types")),
         node_changes=_node_schema_changes(node_diff_entries, top_n=top_n),
         edge_changes=_edge_schema_changes(edge_diff_entries, top_n=top_n),
         node_diffs=_node_type_changes(node_diff_entries, top_n=top_n),
@@ -822,7 +822,7 @@ def _diff_nodes_summary(old: Any, new: Any, node_diffs: Sequence[JsonObject]) ->
             old_summary.get("total_count"),
             new_summary.get("total_count"),
         ),
-        "types": _churn(node_diffs),
+        "types": _type_diff_summary(node_diffs),
         "id_prefixes": _raw_map_diff(
             old_summary.get("id_prefixes"),
             new_summary.get("id_prefixes"),
@@ -839,7 +839,7 @@ def _diff_edges_summary(old: Any, new: Any, edge_diffs: Sequence[JsonObject]) ->
             old_summary.get("total_count"),
             new_summary.get("total_count"),
         ),
-        "types": _churn(edge_diffs),
+        "types": _type_diff_summary(edge_diffs),
         "predicates": _raw_map_diff(old_summary.get("predicates"), new_summary.get("predicates")),
         "primary_knowledge_sources": _raw_map_diff(
             old_summary.get("primary_knowledge_sources"),
@@ -1031,7 +1031,7 @@ def _sort_by_impact(rows: Sequence[JsonObject]) -> list[JsonObject]:
     return sorted(rows, key=lambda row: -abs(_mapping(row.get("count")).get("delta", 0)))
 
 
-def _churn(entries: Sequence[JsonObject]) -> dict[str, int]:
+def _type_diff_summary(entries: Sequence[JsonObject]) -> dict[str, int]:
     tally = {"added": 0, "removed": 0, "changed": 0, "unchanged": 0}
     for entry in entries:
         status = str(entry.get("status") or "unchanged")
