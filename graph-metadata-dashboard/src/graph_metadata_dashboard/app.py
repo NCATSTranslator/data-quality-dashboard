@@ -31,15 +31,13 @@ def create_app(settings: Settings | None = None) -> Dash:
         max_bytes=settings.remote_metadata_max_bytes,
     )
 
-    single_graph = _discovered_page_module("single_graph")
-    comparison = _discovered_page_module("comparison")
-    single_graph.register_callbacks(
+    dashboard = _discovered_page_module("dashboard")
+    dashboard.register_callbacks(
         app,
         cache=cache,
         kgx_client=kgx_client,
         url_client=url_client,
     )
-    comparison.register_callbacks(app)
 
     app.layout = html.Div(
         className="app-shell",

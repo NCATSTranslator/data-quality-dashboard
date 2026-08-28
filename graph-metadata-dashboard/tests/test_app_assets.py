@@ -21,3 +21,11 @@ def test_sankey_interactions_script_is_served() -> None:
     assert b"sankey-node" in response.data
     assert b"Plotly.restyle" not in response.data
     assert b"plotly_click" not in response.data
+
+
+def test_comparison_dialog_script_is_served() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    response = app.server.test_client().get("/assets/comparison_dialogs.js")
+
+    assert response.status_code == 200
+    assert b"data-dialog-target" in response.data
