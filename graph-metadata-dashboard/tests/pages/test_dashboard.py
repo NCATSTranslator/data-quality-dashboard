@@ -9,6 +9,7 @@ from dash import dcc, html, page_registry
 
 from graph_metadata_dashboard.app import create_app
 from graph_metadata_dashboard.cache.memory import InMemoryMetadataCache
+from graph_metadata_dashboard.components import comparison as comparison_components
 from graph_metadata_dashboard.components.single_graph import (
     primary_knowledge_source_counts,
     provenance_contribution,
@@ -16,6 +17,7 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.config import Settings
+from graph_metadata_dashboard.diff import CountDelta, MapEntryChange
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
 from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
@@ -107,8 +109,10 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert "Alliance" in text
     assert "Translator KG Open" in text
     assert len(_find_elements_by_class(dashboard, "comparison-glyph")) > 0
+    assert len(_find_elements_by_class(dashboard, "overview-delta")) > 0
     assert len(_find_elements_by_class(dashboard, "source-change-action-row")) == 1
-    assert len(_find_elements_by_type(dashboard, "Details")) == 2
+    assert len(_find_elements_by_class(dashboard, "comparison-pair-details")) == 2
+    assert len(_find_elements_by_class(dashboard, "schema-table-panel")) > 0
     assert len(source_dialogs) == 1
     source_tables = _find_datatables(source_dialogs[0])
     assert "Show changes" in text
@@ -393,8 +397,49 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text
+    assert len(_find_elements_by_class(dashboard, "schema-summary-card")) > 0
+    assert len(_find_elements_by_class(dashboard, "schema-summary-card-grid")) > 0
+    assert len(_find_elements_by_class(dashboard, "schema-summary-card-column")) > 0
     assert "Nodes:" in overview_text
     assert "Edges:" in overview_text
+
+
+def test_schema_difference_panels_hide_added_removed_percentages() -> None:
+    added_count = CountDelta(old=0, new=5, delta=5, percent_change=100.0)
+    removed_count = CountDelta(old=7, new=0, delta=-7, percent_change=-100.0)
+    changed_count = CountDelta(old=10, new=12, delta=2, percent_change=20.0)
+
+    added_cell = comparison_components._schema_count_cell(
+        added_count,
+        max_delta=7,
+        status="added",
+    )
+    removed_group = comparison_components._schema_map_group(
+        "removed",
+        (
+            MapEntryChange(
+                label="obsolete",
+                status="removed",
+                count=removed_count,
+            ),
+        ),
+        max_delta=7,
+    )
+    changed_group = comparison_components._schema_map_group(
+        "changed",
+        (
+            MapEntryChange(
+                label="updated",
+                status="changed",
+                count=changed_count,
+            ),
+        ),
+        max_delta=7,
+    )
+
+    assert "100.00%" not in " ".join(_flatten_text(added_cell))
+    assert "100.00%" not in " ".join(_flatten_text(removed_group))
+    assert "+20.00%" in " ".join(_flatten_text(changed_group))
 
 
 def _registered_page_module(module_basename: str) -> object:
