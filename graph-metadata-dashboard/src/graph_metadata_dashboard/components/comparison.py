@@ -538,13 +538,17 @@ def _schema_count_cell(
     max_delta: int,
     status: str = "changed",
 ) -> html.Div:
-    children: list[object] = [html.Strong(_format_schema_delta(delta, status=status))]
+    tooltip = _schema_delta_tooltip(delta, status=status)
+    children: list[object] = [
+        html.Strong(_format_schema_delta(delta, status=status), title=tooltip)
+    ]
     if delta.delta:
-        children.insert(0, _delta_bar(delta.delta, max_value=max_delta))
+        children.insert(0, _delta_bar(delta.delta, max_value=max_delta, title=tooltip))
         children.append(
             html.Span(
                 f"{_format_count(delta.old)} -> {_format_count(delta.new)}",
                 className="schema-map-summary",
+                title=tooltip,
             )
         )
     else:
@@ -574,6 +578,32 @@ def _schema_map_group(
     *,
     max_delta: int,
 ) -> html.Div:
+    rows = []
+    for change in changes:
+        tooltip = _schema_delta_tooltip(change.count, status=change.status)
+        rows.append(
+            html.Div(
+                className=f"schema-map-row schema-map-row-{change.status}",
+                children=[
+                    html.Span(change.label, className="schema-map-label"),
+                    html.Div(
+                        className="schema-map-delta",
+                        title=tooltip,
+                        children=[
+                            _delta_bar(
+                                change.count.delta or 0,
+                                max_value=max_delta,
+                                title=tooltip,
+                            ),
+                            html.Span(
+                                _format_schema_delta(change.count, status=change.status),
+                                title=tooltip,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        )
     return html.Div(
         className=f"schema-map-group schema-map-group-{status}",
         children=[
@@ -581,24 +611,7 @@ def _schema_map_group(
                 f"{len(changes):,} {status}",
                 className="schema-map-group-heading",
             ),
-            *[
-                html.Div(
-                    className=f"schema-map-row schema-map-row-{change.status}",
-                    children=[
-                        html.Span(change.label, className="schema-map-label"),
-                        html.Div(
-                            className="schema-map-delta",
-                            children=[
-                                _delta_bar(change.count.delta or 0, max_value=max_delta),
-                                html.Span(
-                                    _format_schema_delta(change.count, status=change.status)
-                                ),
-                            ],
-                        ),
-                    ],
-                )
-                for change in changes
-            ],
+            *rows,
         ],
     )
 
@@ -878,11 +891,13 @@ def _delta_bar(
     *,
     max_value: int,
     neutral: bool = False,
+    title: str | None = None,
 ) -> html.Div:
     width = max(3, round((abs(value) / max_value) * 100)) if max_value > 0 else 0
     direction_class = "neutral" if neutral else ("positive" if value > 0 else "negative")
     return html.Div(
         className=f"comparison-glyph comparison-glyph-{direction_class}",
+        title=title,
         children=[
             html.Span(
                 className="comparison-glyph-bar",
@@ -964,6 +979,16 @@ def _format_schema_delta(delta: CountDelta, *, status: str) -> str:
             )
         )
     return _format_delta(delta)
+
+
+def _schema_delta_tooltip(delta: CountDelta, *, status: str) -> str:
+    return "\n".join(
+        [
+            f"Baseline: {_format_count(delta.old)}",
+            f"Comparison: {_format_count(delta.new)}",
+            f"Delta: {_format_schema_delta(delta, status=status)}",
+        ]
+    )
 
 
 def _message_list(messages: list[str]) -> html.Div | str:

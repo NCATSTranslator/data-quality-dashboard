@@ -440,6 +440,23 @@ def test_schema_difference_panels_hide_added_removed_percentages() -> None:
     assert "100.00%" not in " ".join(_flatten_text(added_cell))
     assert "100.00%" not in " ".join(_flatten_text(removed_group))
     assert "+20.00%" in " ".join(_flatten_text(changed_group))
+    assert "Baseline: 0" in _find_elements_by_class(added_cell, "comparison-glyph")[0].title
+    assert "Percent change" not in _find_elements_by_class(
+        removed_group,
+        "schema-map-delta",
+    )[0].title
+    assert "Baseline: 10" in _find_elements_by_class(
+        changed_group,
+        "schema-map-delta",
+    )[0].title
+    assert "Comparison: 12" in _find_elements_by_class(
+        changed_group,
+        "schema-map-delta",
+    )[0].title
+    assert "Percent change" not in _find_elements_by_class(
+        changed_group,
+        "schema-map-delta",
+    )[0].title
 
 
 def _registered_page_module(module_basename: str) -> object:
