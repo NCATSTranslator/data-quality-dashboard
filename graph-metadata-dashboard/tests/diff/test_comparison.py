@@ -92,8 +92,95 @@ def test_compare_detects_graph_source_and_subgraph_changes() -> None:
         ("infores:source-a", "changed"),
         ("infores:source-b", "added"),
     ]
+    assert pair.source_changes[0].changed_fields == ("Version",)
+    added_change = pair.source_changes[1]
+    assert added_change.old_values == "None"
+    assert "Name:" not in added_change.new_values
+    assert "Version: v1" in added_change.new_values
+    assert "License: MIT" in added_change.new_values
     assert pair.subgraph_changes[0].source_id == "infores:subgraph-a"
     assert pair.subgraph_changes[0].node_delta.delta == 5
+
+
+def test_compare_explains_source_metadata_changes_beyond_version_license() -> None:
+    baseline = _parsed_graph(
+        name="Baseline",
+        sources=(
+            KnowledgeSource(
+                id="infores:shared",
+                name="Shared Source",
+                description="Same description",
+                license="MIT",
+                attribution="old attribution",
+                citation=["same citation"],
+                version="v1",
+            ),
+            KnowledgeSource(
+                id="infores:duplicate",
+                name="Duplicate A",
+                description="",
+                license="MIT",
+                attribution="",
+                citation=[],
+                version="v1",
+            ),
+            KnowledgeSource(
+                id="infores:duplicate",
+                name="Duplicate B",
+                description="",
+                license="MIT",
+                attribution="",
+                citation=[],
+                version="v1",
+            ),
+        ),
+    )
+    target = _parsed_graph(
+        name="Target",
+        sources=(
+            KnowledgeSource(
+                id="infores:shared",
+                name="Shared Source",
+                description="New description",
+                license="MIT",
+                attribution="new attribution",
+                citation=["same citation"],
+                version="v1",
+            ),
+            KnowledgeSource(
+                id="infores:duplicate",
+                name="Duplicate A",
+                description="",
+                license="MIT",
+                attribution="",
+                citation=[],
+                version="v1",
+            ),
+            KnowledgeSource(
+                id="infores:duplicate",
+                name="Duplicate B",
+                description="",
+                license="MIT",
+                attribution="",
+                citation=[],
+                version="v2",
+            ),
+        ),
+    )
+
+    pair = compare([baseline, target]).comparisons[0]
+
+    assert [(change.source_id, change.changed_fields) for change in pair.source_changes] == [
+        ("infores:duplicate", ("Version",)),
+        ("infores:shared", ("Attribution", "Description")),
+    ]
+    shared_change = next(
+        change for change in pair.source_changes if change.source_id == "infores:shared"
+    )
+    assert "Attribution: old attribution" in shared_change.old_values
+    assert "\nDescription: Same description" in shared_change.old_values
+    assert "Attribution: new attribution" in shared_change.new_values
+    assert "\nDescription: New description" in shared_change.new_values
 
 
 def test_compare_summarizes_schema_diffs_with_missing_keys_as_zero(monkeypatch) -> None:

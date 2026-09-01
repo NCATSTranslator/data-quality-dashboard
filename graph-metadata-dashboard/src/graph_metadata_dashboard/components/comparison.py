@@ -188,10 +188,9 @@ def _source_changes_table(
         {
             "id": change.source_id,
             "name": change.name,
-            "old_version": change.old_version or "None",
-            "new_version": change.new_version or "None",
-            "old_license": change.old_license or "None",
-            "new_license": change.new_license or "None",
+            "changed_fields": ", ".join(change.changed_fields),
+            "old_values": change.old_values,
+            "new_values": change.new_values,
         }
         for change in changes
     ]
@@ -201,13 +200,16 @@ def _source_changes_table(
         columns=[
             {"name": "ID", "id": "id"},
             {"name": "Name", "id": "name"},
-            {"name": f"{baseline_label} Version", "id": "old_version"},
-            {"name": f"{comparison_label} Version", "id": "new_version"},
-            {"name": f"{baseline_label} License", "id": "old_license"},
-            {"name": f"{comparison_label} License", "id": "new_license"},
+            {"name": "Changed Fields", "id": "changed_fields"},
+            {"name": f"{baseline_label} Values", "id": "old_values"},
+            {"name": f"{comparison_label} Values", "id": "new_values"},
         ],
-        empty_message="No source additions, removals, version changes, or license changes found.",
+        empty_message="No source additions, removals, or source metadata changes found.",
         heading_level=heading_level,
+        style_data_conditional=[
+            {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"},
+            {"if": {"column_id": "new_values"}, "whiteSpace": "pre-line"},
+        ],
     )
 
 
@@ -929,6 +931,7 @@ def _table_section(
     page_size: int = 10,
     sortable: bool = False,
     filterable: bool = False,
+    style_data_conditional: list[dict[str, object]] | None = None,
 ) -> html.Div:
     heading = html.H5(title) if heading_level == 5 else html.H4(title)
     if not rows:
@@ -948,6 +951,7 @@ def _table_section(
                 filter_action="native" if filterable else "none",
                 style_table={"overflowX": "auto"},
                 style_cell=_table_cell_style(),
+                style_data_conditional=style_data_conditional or [],
             ),
         ],
     )

@@ -530,6 +530,11 @@ def register_callbacks(
     @app.callback(
         Output("load-selected-metadata", "disabled"),
         Output("reset-selection", "disabled"),
+        Output("kgx-release-dropdown", "disabled"),
+        Output("graph-metadata-url", "disabled"),
+        Output("schema-url", "disabled"),
+        Output("upload-graph-metadata", "disabled"),
+        Output("upload-schema", "disabled"),
         Input("kgx-release-dropdown", "value"),
         Input("upload-graph-metadata", "filename"),
         Input("upload-schema", "filename"),
@@ -544,19 +549,15 @@ def register_callbacks(
         graph_url: str | None,
         schema_url: str | None,
         graph_states: list[GraphState] | GraphState | None,
-    ) -> tuple[bool, bool]:
-        has_loadable_selection = bool(
-            _selected_source_ids(selected_source)
-            or graph_filename
-            or _clean_url(graph_url)
+    ) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
+        return _selection_control_state(
+            selected_source=selected_source,
+            graph_filename=graph_filename,
+            schema_filename=schema_filename,
+            graph_url=graph_url,
+            schema_url=schema_url,
+            graph_states=graph_states,
         )
-        has_resettable_selection = bool(
-            has_loadable_selection
-            or schema_filename
-            or _clean_url(schema_url)
-            or _normalize_graph_states(graph_states)
-        )
-        return not has_loadable_selection, not has_resettable_selection
 
     @app.callback(
         Output("loaded-graph-state", "data"),
@@ -612,7 +613,7 @@ def register_callbacks(
             )
         if trigger == "kgx-release-dropdown":
             return _load_graph_result(
-                graph_state=_prune_unselected_kgx_states(graph_states, selected_source)
+                graph_state=_normalize_graph_states(graph_states)
             )
         if trigger == "graph-metadata-url":
             return _load_graph_result(
@@ -1092,7 +1093,7 @@ def register_callbacks(
                 children=[
                     _qualifier_context_summary(
                         qualifier_edges,
-                        scope_label="matching source and predicate filters",
+                        scope_label="displayed source-predicate flows",
                     ),
                     dcc.Graph(
                         id="source-predicate-sankey-graph",
@@ -1395,16 +1396,38 @@ def _single_graph_state(graph_states: list[GraphState]) -> GraphState | None:
     return graph_states[0] if len(graph_states) == 1 else None
 
 
-def _prune_unselected_kgx_states(
-    graph_states: list[GraphState] | GraphState | None,
+def _selection_control_state(
+    *,
     selected_source: str | list[str] | None,
-) -> list[GraphState]:
-    selected_sources = set(_selected_source_ids(selected_source))
-    pruned: list[GraphState] = []
-    for state in _normalize_graph_states(graph_states):
-        if state.get("kind") != "kgx" or state.get("source_id") in selected_sources:
-            pruned.append(state)
-    return pruned
+    graph_filename: str | None,
+    schema_filename: str | None,
+    graph_url: str | None,
+    schema_url: str | None,
+    graph_states: list[GraphState] | GraphState | None,
+) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
+    loaded_states = _normalize_graph_states(graph_states)
+    if loaded_states:
+        return True, False, True, True, True, True, True
+    has_loadable_selection = bool(
+        _selected_source_ids(selected_source)
+        or graph_filename
+        or _clean_url(graph_url)
+    )
+    has_resettable_selection = bool(
+        has_loadable_selection
+        or schema_filename
+        or _clean_url(schema_url)
+        or loaded_states
+    )
+    return (
+        not has_loadable_selection,
+        not has_resettable_selection,
+        False,
+        False,
+        False,
+        False,
+        False,
+    )
 
 
 def _get_cached_graph(
@@ -1647,7 +1670,7 @@ def _qualifier_context_summary(
     edge_count = sum(edge.count for edge in edges)
     children: list[Any] = [
         html.P(
-            f"Quailifer counts covering {edge_count:,} edges from {len(edges):,} {scope_label}: "
+            f"Qualifier context for {edge_count:,} edges from {len(edges):,} {scope_label}: "
         ),
     ]
     if qualifier_counts:
@@ -1690,7 +1713,17 @@ def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
                     html.Div(
                         children=[
                             html.P("Active selection", className="eyebrow"),
-                            html.H3(_mode_label(len(graph_states))),
+                            html.Div(
+                                className="selection-heading-line",
+                                children=[
+                                    html.H3(_mode_label(len(graph_states))),
+                                    html.P(
+                                        "Click Reset selection button above to clear this "
+                                        "selection before choosing a new set of graphs.",
+                                        className="selection-reset-note",
+                                    ),
+                                ],
+                            ),
                         ]
                     ),
                     baseline_selector,
@@ -1819,8 +1852,8 @@ def _empty_state() -> html.Div:
 
 def _mode_label(selection_count: int) -> str:
     if selection_count == 1:
-        return "Single graph selected"
-    return f"{selection_count} graphs selected"
+        return "Single graph selected."
+    return f"{selection_count} graphs selected."
 
 
 def _graph_label(graph_state: GraphState) -> str:

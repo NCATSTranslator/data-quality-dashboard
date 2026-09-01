@@ -121,10 +121,12 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert source_tables
     source_column_names = [column["name"] for column in source_tables[0].columns]
     assert "Status" not in source_column_names
-    assert "Alliance Version" in source_column_names
-    assert "Translator KG Open Version" in source_column_names
-    assert "Alliance License" in source_column_names
-    assert "Translator KG Open License" in source_column_names
+    assert "Changed Fields" in source_column_names
+    assert "Alliance Values" in source_column_names
+    assert "Translator KG Open Values" in source_column_names
+    assert {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"} in (
+        source_tables[0].style_data_conditional
+    )
 
 
 def test_comparison_dashboard_uses_selected_baseline() -> None:
@@ -176,6 +178,43 @@ def test_loaded_graphs_summary_includes_baseline_selector() -> None:
         "Alliance",
         "Translator KG Open",
     ]
+
+
+def test_kgx_dropdown_locks_after_graphs_are_loaded() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    assert page_module._selection_control_state(
+        selected_source=["alliance", "ctd"],
+        graph_filename=None,
+        schema_filename=None,
+        graph_url=None,
+        schema_url=None,
+        graph_states=[],
+    ) == (False, False, False, False, False, False, False)
+    assert page_module._selection_control_state(
+        selected_source=["alliance", "ctd"],
+        graph_filename=None,
+        schema_filename=None,
+        graph_url=None,
+        schema_url=None,
+        graph_states=[
+            {
+                "cache_key": "alliance",
+                "kind": "kgx",
+                "source_id": "alliance",
+                "label": "Alliance",
+            }
+        ],
+    ) == (True, False, True, True, True, True, True)
+    assert page_module._selection_control_state(
+        selected_source=[],
+        graph_filename=None,
+        schema_filename=None,
+        graph_url=None,
+        schema_url=None,
+        graph_states=[],
+    ) == (True, True, False, False, False, False, False)
 
 
 def test_baseline_selector_disambiguates_duplicate_graph_names() -> None:

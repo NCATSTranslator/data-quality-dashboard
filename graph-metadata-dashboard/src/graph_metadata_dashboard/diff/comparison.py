@@ -51,14 +51,21 @@ class FieldDifference:
 
 
 @dataclass(frozen=True)
+class SourceFieldDifference:
+    field: str
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
 class SourceChange:
     source_id: str
     name: str
     status: str
-    old_version: str
-    new_version: str
-    old_license: str
-    new_license: str
+    changed_fields: tuple[str, ...]
+    old_values: str
+    new_values: str
+    field_differences: tuple[SourceFieldDifference, ...]
 
 
 @dataclass(frozen=True)
@@ -277,25 +284,34 @@ def _source_changes(
     old_sources: Sequence[KnowledgeSource],
     new_sources: Sequence[KnowledgeSource],
 ) -> tuple[SourceChange, ...]:
-    old_index = {_source_key(source): source for source in old_sources}
-    new_index = {_source_key(source): source for source in new_sources}
+    duplicate_ids = _duplicate_source_ids(old_sources) | _duplicate_source_ids(new_sources)
+    old_index = _source_index(old_sources, duplicate_ids=duplicate_ids)
+    new_index = _source_index(new_sources, duplicate_ids=duplicate_ids)
     changes: list[SourceChange] = []
-    for source_id in sorted(set(old_index) | set(new_index)):
-        old_source = old_index.get(source_id)
-        new_source = new_index.get(source_id)
+    for source_key in sorted(set(old_index) | set(new_index)):
+        old_source = old_index.get(source_key)
+        new_source = new_index.get(source_key)
+        source_id = (
+            (new_source.id if new_source else "")
+            or (old_source.id if old_source else "")
+            or source_key
+        )
         if old_source is None and new_source is not None:
             changes.append(_source_change(source_id, None, new_source, "added"))
         elif old_source is not None and new_source is None:
             changes.append(_source_change(source_id, old_source, None, "removed"))
-        elif (
-            old_source is not None
-            and new_source is not None
-            and (
-                (old_source.version or "") != (new_source.version or "")
-                or (old_source.license or "") != (new_source.license or "")
-            )
-        ):
-            changes.append(_source_change(source_id, old_source, new_source, "changed"))
+        elif old_source is not None and new_source is not None:
+            field_differences = _source_field_differences(old_source, new_source)
+            if field_differences:
+                changes.append(
+                    _source_change(
+                        source_id,
+                        old_source,
+                        new_source,
+                        "changed",
+                        field_differences=field_differences,
+                    )
+                )
     return tuple(changes)
 
 
@@ -304,21 +320,129 @@ def _source_change(
     old_source: KnowledgeSource | None,
     new_source: KnowledgeSource | None,
     status: str,
+    *,
+    field_differences: tuple[SourceFieldDifference, ...] = (),
 ) -> SourceChange:
     source = new_source or old_source
     return SourceChange(
         source_id=source_id,
         name=(source.name if source else "") or "Unknown",
         status=status,
-        old_version=(old_source.version if old_source else "") or "",
-        new_version=(new_source.version if new_source else "") or "",
-        old_license=(old_source.license if old_source else "") or "",
-        new_license=(new_source.license if new_source else "") or "",
+        changed_fields=_source_changed_fields(status, field_differences),
+        old_values=_source_change_values(old_source, field_differences, side="old"),
+        new_values=_source_change_values(new_source, field_differences, side="new"),
+        field_differences=field_differences,
     )
 
 
-def _source_key(source: KnowledgeSource) -> str:
-    return source.id or source.name or "Unknown"
+def _source_index(
+    sources: Sequence[KnowledgeSource],
+    *,
+    duplicate_ids: set[str],
+) -> dict[str, KnowledgeSource]:
+    index: dict[str, KnowledgeSource] = {}
+    seen: dict[str, int] = {}
+    for source in sources:
+        base_key = _source_key(source, duplicate_ids=duplicate_ids)
+        seen[base_key] = seen.get(base_key, 0) + 1
+        key = base_key if seen[base_key] == 1 else f"{base_key} #{seen[base_key]}"
+        index[key] = source
+    return index
+
+
+def _source_key(source: KnowledgeSource, *, duplicate_ids: set[str]) -> str:
+    source_id = source.id or ""
+    if source_id and source_id in duplicate_ids:
+        return f"{source_id} | {source.name or source.version or 'Unknown'}"
+    return source_id or source.name or "Unknown"
+
+
+def _duplicate_source_ids(*source_groups: Sequence[KnowledgeSource]) -> set[str]:
+    duplicate_ids: set[str] = set()
+    for sources in source_groups:
+        counts: dict[str, int] = {}
+        for source in sources:
+            if source.id:
+                counts[source.id] = counts.get(source.id, 0) + 1
+        duplicate_ids.update(source_id for source_id, count in counts.items() if count > 1)
+    return duplicate_ids
+
+
+def _source_field_differences(
+    old_source: KnowledgeSource,
+    new_source: KnowledgeSource,
+) -> tuple[SourceFieldDifference, ...]:
+    fields = (
+        ("Name", "name"),
+        ("Version", "version"),
+        ("License", "license"),
+        ("Attribution", "attribution"),
+        ("Description", "description"),
+        ("Citation", "citation"),
+    )
+    differences = []
+    for label, attribute in fields:
+        old_value = _source_field_value(old_source, attribute)
+        new_value = _source_field_value(new_source, attribute)
+        if old_value != new_value:
+            differences.append(
+                SourceFieldDifference(
+                    field=label,
+                    old=_clip_source_value(old_value),
+                    new=_clip_source_value(new_value),
+                )
+            )
+    return tuple(differences)
+
+
+def _source_field_value(source: KnowledgeSource, attribute: str) -> str:
+    value = getattr(source, attribute)
+    if isinstance(value, list):
+        value = "; ".join(str(item).strip() for item in value if str(item).strip())
+    return " ".join(str(value or "").split())
+
+
+def _clip_source_value(value: str, *, limit: int = 180) -> str:
+    value = value.strip()
+    if not value:
+        return "None"
+    return value if len(value) <= limit else f"{value[: limit - 1]}..."
+
+
+def _source_changed_fields(
+    status: str,
+    field_differences: tuple[SourceFieldDifference, ...],
+) -> tuple[str, ...]:
+    if status == "added":
+        return ("Added",)
+    if status == "removed":
+        return ("Removed",)
+    return tuple(difference.field for difference in field_differences)
+
+
+def _source_change_values(
+    source: KnowledgeSource | None,
+    field_differences: tuple[SourceFieldDifference, ...],
+    *,
+    side: str,
+) -> str:
+    if source is None:
+        return "None"
+    if field_differences:
+        return "\n".join(
+            f"{difference.field}: {difference.old if side == 'old' else difference.new}"
+            for difference in field_differences
+        )
+    summary_fields = (
+        ("Version", source.version),
+        ("License", source.license),
+    )
+    values = [
+        f"{label}: {_clip_source_value(str(value))}"
+        for label, value in summary_fields
+        if str(value or "").strip()
+    ]
+    return "\n".join(values) if values else "No populated source fields"
 
 
 def _subgraph_changes(
