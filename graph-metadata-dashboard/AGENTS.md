@@ -106,7 +106,3 @@ format) — load the relevant one before working in that area:
 
 These skills also contain the project's "resolved decisions" (settled questions — don't re-ask
 them; each skill carries the ones relevant to its area).
-
-`.agents/skills/` is the canonical location (Codex CLI and other Agent-Skills-standard tools read
-it natively). `.claude/skills/*` are symlinks into it, purely so Claude Code's own discovery path
-also picks them up — edit skill content only under `.agents/skills/`, never the symlinks.
