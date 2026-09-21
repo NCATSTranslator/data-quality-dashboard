@@ -2,7 +2,6 @@
 __pycache__/
 *.py[codz]
 *$py.class
-SESSION.md
 
 # C extensions
 *.so
@@ -217,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Agents
+SESSION.md
+.agents/*
+!.agents/skills/
+.codex
+.claude
