@@ -12,6 +12,7 @@ from graph_metadata_dashboard.diff.comparison import (
     SourceChange,
     SourceFieldDifference,
     SubgraphChange,
+    SubgraphFieldDifference,
     TypeCountChange,
     compare,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "SourceChange",
     "SourceFieldDifference",
     "SubgraphChange",
+    "SubgraphFieldDifference",
     "TypeCountChange",
     "compare",
 ]

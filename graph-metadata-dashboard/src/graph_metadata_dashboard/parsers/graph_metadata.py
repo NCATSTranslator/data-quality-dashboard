@@ -115,14 +115,26 @@ def _parse_subgraph(entry: Mapping[str, Any]) -> SubgraphSource:
     _, KGXKnowledgeGraphSource = _orion_metadata_classes()
     kgx_source = KGXKnowledgeGraphSource.from_dict(dict(entry))
     return SubgraphSource(
-        id=_string_or_empty(getattr(kgx_source, "id", entry.get("@id", ""))),
-        name=_string_or_empty(getattr(kgx_source, "name", entry.get("name", ""))),
-        node_count=int_or_none(
-            getattr(kgx_source, "node_count", entry.get("orion:nodeCount"))
+        id=_first_string(kgx_source, entry, "id", "@id", "identifier"),
+        name=_first_string(kgx_source, entry, "name"),
+        node_count=_subgraph_count(
+            kgx_source,
+            entry,
+            "node_count",
+            "orion:nodeCount",
+            "nodeCount",
+            "nodes",
         ),
-        edge_count=int_or_none(
-            getattr(kgx_source, "edge_count", entry.get("orion:edgeCount"))
+        edge_count=_subgraph_count(
+            kgx_source,
+            entry,
+            "edge_count",
+            "orion:edgeCount",
+            "edgeCount",
+            "edges",
         ),
+        release_version=_first_string(kgx_source, entry, "release_version"),
+        build_version=_first_string(kgx_source, entry, "build_version"),
     )
 
 
@@ -217,6 +229,33 @@ def _int_dict(value: Any) -> dict[str, int]:
         if parsed is not None:
             output[safe_key] = parsed
     return output
+
+
+def _first_string(obj: Any, entry: Mapping[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = getattr(obj, key, None)
+        if value is not None and value != "":
+            return str(value)
+        value = entry.get(key)
+        if value is not None and value != "":
+            return str(value)
+    return ""
+
+
+def _subgraph_count(
+    obj: Any,
+    entry: Mapping[str, Any],
+    attribute: str,
+    *entry_keys: str,
+) -> int | None:
+    value = getattr(obj, attribute, None)
+    if value is not None:
+        return int_or_none(value)
+    for key in entry_keys:
+        parsed = int_or_none(entry.get(key))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _string_or_empty(value: Any) -> str:

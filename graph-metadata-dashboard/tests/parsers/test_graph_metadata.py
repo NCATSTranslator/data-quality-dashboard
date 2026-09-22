@@ -47,6 +47,31 @@ def test_parse_pointer_schema_fixture_when_schema_supplied() -> None:
     assert len(parsed.schema.edges) > 0
 
 
+def test_parse_subgraph_release_build_metadata_and_count_variants() -> None:
+    parsed = parse_graph_metadata(
+        {
+            "name": "translator_kg",
+            "version": "1.0.1",
+            "hasPart": [
+                {
+                    "@id": "https://kgx-storage.example/releases/alliance/1.0.0/",
+                    "name": "alliance",
+                    "nodeCount": "12",
+                    "edgeCount": 34,
+                    "release_version": "1.0.0",
+                    "build_version": "alliance-build",
+                }
+            ],
+        }
+    )
+
+    assert parsed.subgraphs[0].id.endswith("/alliance/1.0.0/")
+    assert parsed.subgraphs[0].node_count == 12
+    assert parsed.subgraphs[0].edge_count == 34
+    assert parsed.subgraphs[0].release_version == "1.0.0"
+    assert parsed.subgraphs[0].build_version == "alliance-build"
+
+
 def test_parse_registry_schema_wrapper() -> None:
     schema = parse_schema(load_fixture("robokopkg.schema.json"))
 

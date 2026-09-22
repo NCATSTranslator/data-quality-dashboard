@@ -147,8 +147,10 @@ def _comparison_pair_section(
     collapsed: bool,
     open_by_default: bool,
 ) -> html.Div:
-    title = f"Schema-Level Differences: {_graph_title(pair.baseline)} " \
-            f"-> {_graph_title(pair.target)}"
+    title = (
+        f"Schema-Level Differences: {_graph_title(pair.baseline)} "
+        f"-> {_graph_title(pair.target)}"
+    )
     contents = []
     if pair.subgraph_changes:
         contents.append(_subgraph_changes_table(pair.subgraph_changes))
@@ -214,35 +216,41 @@ def _source_changes_table(
 
 
 def _subgraph_changes_table(changes: tuple[SubgraphChange, ...]) -> html.Div:
+    displayed_changes = changes[:25]
+    show_changed_fields = any(change.status == "changed" for change in displayed_changes)
     rows = [
         {
             "status": change.status,
             "id": change.source_id,
             "name": change.name,
-            "old_nodes": _format_count(change.node_delta.old),
-            "new_nodes": _format_count(change.node_delta.new),
-            "node_delta": _format_delta(change.node_delta),
-            "old_edges": _format_count(change.edge_delta.old),
-            "new_edges": _format_count(change.edge_delta.new),
-            "edge_delta": _format_delta(change.edge_delta),
+            **(
+                {"changed_fields": ", ".join(change.changed_fields)}
+                if show_changed_fields
+                else {}
+            ),
+            "old_values": change.old_values,
+            "new_values": change.new_values,
         }
-        for change in changes[:25]
+        for change in displayed_changes
     ]
+    columns = [
+        {"name": "Status", "id": "status"},
+        {"name": "ID", "id": "id"},
+        {"name": "Name", "id": "name"},
+        {"name": "Baseline Metadata", "id": "old_values"},
+        {"name": "Comparison Metadata", "id": "new_values"},
+    ]
+    if show_changed_fields:
+        columns.insert(3, {"name": "Changed Fields", "id": "changed_fields"})
     return _table_section(
-        "Subgraph Contribution Changes",
+        "Subgraph Source Changes",
         rows,
-        columns=[
-            {"name": "Status", "id": "status"},
-            {"name": "ID", "id": "id"},
-            {"name": "Name", "id": "name"},
-            {"name": "Baseline Nodes", "id": "old_nodes"},
-            {"name": "Comparison Nodes", "id": "new_nodes"},
-            {"name": "Node Delta", "id": "node_delta"},
-            {"name": "Baseline Edges", "id": "old_edges"},
-            {"name": "Comparison Edges", "id": "new_edges"},
-            {"name": "Edge Delta", "id": "edge_delta"},
+        columns=columns,
+        empty_message="No subgraph additions, removals, or metadata changes found.",
+        style_data_conditional=[
+            {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"},
+            {"if": {"column_id": "new_values"}, "whiteSpace": "pre-line"},
         ],
-        empty_message="No subgraph contribution count changes found.",
     )
 
 
@@ -256,19 +264,24 @@ def _schema_diff_section(pair: GraphComparison) -> html.Div:
             ],
         )
 
-    return html.Div(
-        className="comparison-section schema-diff-section",
-        children=[
-            html.P(
-                f"Schema differences of {_graph_title(pair.target)}" \
-                f" relative to the {_graph_title(pair.baseline)}" \
-                " baseline, including changes in overall node and " \
-                "edge composition summaries, node categories, and edge triples.",
-                className="status-line",
-            ),
+    children: list[object] = [
+        html.P(
+            f"Schema differences of {_graph_title(pair.target)}"
+            f" relative to the {_graph_title(pair.baseline)}"
+            " baseline, including changes in overall node and "
+            "edge composition summaries, node categories, and edge triples.",
+            className="status-line",
+        ),
+    ]
+    children.extend(
+        [
             _schema_summary_table(schema),
             _schema_entry_tables(schema),
-        ],
+        ]
+    )
+    return html.Div(
+        className="comparison-section schema-diff-section",
+        children=children,
     )
 
 
@@ -377,6 +390,11 @@ def _schema_summary_table(schema: SchemaDiffSummary) -> html.Div:
                 className="schema-table-panel",
                 children=[
                     html.Summary("Overall Node and Edge Composition Summary Changes"),
+                    html.P(
+                        "Summary data are sorted by change magnitude so the items with " \
+                        "largest differences appear first.",
+                        className="comparison-table-note",
+                    ),
                     html.Div(className="schema-summary-card-grid", children=card_columns),
                 ],
             ),
@@ -420,6 +438,11 @@ def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None
                 className="schema-table-panel",
                 children=[
                     html.Summary("Node Category Changes"),
+                    html.P(
+                        "Rows are sorted by largest combined node-count, ID-prefix, "
+                        "and attribute changes.",
+                        className="comparison-table-note",
+                    ),
                     _schema_rich_table(
                         class_name="schema-node-table",
                         headers=("Node category", "Node count", "ID prefixes", "Attributes"),
@@ -454,6 +477,11 @@ def _edge_schema_table(changes: tuple[EdgeSchemaChange, ...]) -> html.Div | None
                 className="schema-table-panel",
                 children=[
                     html.Summary("Edge Triple Changes"),
+                    html.P(
+                        "Rows are sorted by largest combined edge-count, source, qualifier, "
+                        "attribute, and ID-prefix changes.",
+                        className="comparison-table-note",
+                    ),
                     _schema_rich_table(
                         class_name="schema-edge-table",
                         headers=(

@@ -25,16 +25,21 @@ schema-specific sections should show a clear unavailable message.
 
 ## ORION boundary
 
-Use `orion.kgx_schema_diff.diff_schemas(old_document, new_document)` for schema-level diffs
-instead of reimplementing the schema diff algorithm — available in `robokop-orion==2.0.5`. Input
-documents normally come from `ParsedGraphMetadata.schema.raw` after schema has been loaded (see
-`orion-metadata-format` skill for what `.raw` holds and why typed fields are preferred elsewhere).
+Use `from orion import diff_schemas` for schema-level diffs instead of reimplementing the schema
+diff algorithm — available in `robokop-orion==2.0.5`. Pass graph-metadata-shaped documents into
+ORION, not dashboard-parsed node/edge structures. If a graph has inline schema, pass its raw
+`graph-metadata.json` document directly. If the graph metadata references an external schema,
+build a graph-metadata-shaped document by inlining the loaded schema under the `schema` key before
+calling ORION. Do not call `diff_schemas()` on dashboard-derived typed rows.
 
 Output shape: top-level `old`, `new`, `diff` keys; `diff` contains `nodes`, `nodes_summary`,
 `edges`, `edges_summary`. Count diffs use `{old, new, delta, percent_change}`; map diffs use
-`{added, removed, changed}`. This module compares KGX schema documents/sections only, not all
-graph-level metadata fields — dashboard code still has to compare graph-level metadata and
-`isBasedOn` sources itself (see Scope above).
+`{added, removed, changed}`, with `changed` entries carrying count-diff objects. ORION schema
+diffs include edge-source count deltas through `edges_summary.primary_knowledge_sources` and
+`edges_summary.predicates_by_knowledge_source`; there is no equivalent node-source dimension in
+`nodes_summary`. This module compares KGX schema content only, not all graph-level metadata fields
+— dashboard code still has to compare graph-level metadata and `isBasedOn` sources itself (see
+Scope above).
 
 Do not pass ORION objects or raw graph metadata throughout the app. The dashboard-owned comparison
 module (`src/graph_metadata_dashboard/diff/comparison.py`) consumes `ParsedGraphMetadata` objects,

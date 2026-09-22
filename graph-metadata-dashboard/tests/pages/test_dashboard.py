@@ -17,7 +17,7 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.config import Settings
-from graph_metadata_dashboard.diff import CountDelta, MapEntryChange
+from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SubgraphChange
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
 from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
@@ -395,7 +395,49 @@ def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
         ],
     )
 
-    assert "Subgraph Contribution Changes" not in " ".join(_flatten_text(dashboard))
+    assert "Subgraph Source Changes" not in " ".join(_flatten_text(dashboard))
+
+
+def test_subgraph_changes_table_renders_metadata_differences() -> None:
+    table = comparison_components._subgraph_changes_table(
+        (
+            SubgraphChange(
+                source_id="alliance",
+                name="alliance",
+                status="changed",
+                changed_fields=("Release version", "Build version"),
+                old_values="Release version: 1.0.0\nBuild version: old-build",
+                new_values="Release version: 1.0.1\nBuild version: new-build",
+            ),
+        )
+    )
+    text = " ".join(_flatten_text(table))
+    datatable = _find_datatables(table)[0]
+
+    assert "Subgraph Source Changes" in text
+    assert {"name": "Changed Fields", "id": "changed_fields"} in datatable.columns
+    assert datatable.data[0]["changed_fields"] == "Release version, Build version"
+    assert "Release version: 1.0.0" in datatable.data[0]["old_values"]
+    assert "Build version: new-build" in datatable.data[0]["new_values"]
+
+
+def test_subgraph_changes_table_hides_changed_fields_for_added_removed_only() -> None:
+    table = comparison_components._subgraph_changes_table(
+        (
+            SubgraphChange(
+                source_id="ctd",
+                name="ctd",
+                status="removed",
+                changed_fields=("Removed",),
+                old_values="Release version: 1.0.0",
+                new_values="None",
+            ),
+        )
+    )
+    datatable = _find_datatables(table)[0]
+
+    assert {"name": "Changed Fields", "id": "changed_fields"} not in datatable.columns
+    assert "changed_fields" not in datatable.data[0]
 
 
 def test_comparison_dashboard_renders_schema_change_visuals() -> None:
@@ -433,6 +475,10 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Primary sources" in text
     assert "Subject prefixes" in text
     assert "Object prefixes" in text
+    assert "Top Schema Movers" not in text
+    assert "Rows are sorted by largest combined node-count" in text
+    assert "Rows are sorted by largest combined edge-count" in text
+    assert "Cards and entries are ordered by change density" in text
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text

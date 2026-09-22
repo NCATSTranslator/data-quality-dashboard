@@ -29,6 +29,8 @@ class SubgraphSource:
     name: str
     node_count: int | None
     edge_count: int | None
+    release_version: str = ""
+    build_version: str = ""
 
 
 @dataclass(frozen=True)

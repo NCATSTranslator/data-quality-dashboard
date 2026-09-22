@@ -98,8 +98,65 @@ def test_compare_detects_graph_source_and_subgraph_changes() -> None:
     assert "Name:" not in added_change.new_values
     assert "Version: v1" in added_change.new_values
     assert "License: MIT" in added_change.new_values
-    assert pair.subgraph_changes[0].source_id == "infores:subgraph-a"
-    assert pair.subgraph_changes[0].node_delta.delta == 5
+    assert [(change.source_id, change.status) for change in pair.subgraph_changes] == [
+        ("infores:subgraph-b", "added")
+    ]
+
+
+def test_compare_hides_unchanged_subgraphs_with_missing_counts() -> None:
+    subgraph = SubgraphSource(
+        id="https://kgx-storage.example/releases/alliance/1.0.0/",
+        name="alliance",
+        node_count=None,
+        edge_count=None,
+        release_version="1.0.0",
+        build_version="alliance-build",
+    )
+    baseline = _parsed_graph(name="Baseline", subgraphs=(subgraph,))
+    target = _parsed_graph(name="Target", subgraphs=(subgraph,))
+
+    pair = compare([baseline, target]).comparisons[0]
+
+    assert pair.subgraph_changes == ()
+
+
+def test_compare_reports_subgraph_metadata_changes() -> None:
+    baseline = _parsed_graph(
+        name="Baseline",
+        subgraphs=(
+            SubgraphSource(
+                id="https://kgx-storage.example/releases/alliance/1.0.0/",
+                name="alliance",
+                node_count=None,
+                edge_count=None,
+                release_version="1.0.0",
+                build_version="old-build",
+            ),
+        ),
+    )
+    target = _parsed_graph(
+        name="Target",
+        subgraphs=(
+            SubgraphSource(
+                id="https://kgx-storage.example/releases/alliance/1.0.1/",
+                name="alliance",
+                node_count=None,
+                edge_count=None,
+                release_version="1.0.1",
+                build_version="new-build",
+            ),
+        ),
+    )
+
+    pair = compare([baseline, target]).comparisons[0]
+
+    assert len(pair.subgraph_changes) == 1
+    change = pair.subgraph_changes[0]
+    assert change.status == "changed"
+    assert change.source_id == "alliance"
+    assert change.changed_fields == ("ID", "Release version", "Build version")
+    assert "Release version: 1.0.0" in change.old_values
+    assert "Build version: new-build" in change.new_values
 
 
 def test_compare_explains_source_metadata_changes_beyond_version_license() -> None:
@@ -183,12 +240,7 @@ def test_compare_explains_source_metadata_changes_beyond_version_license() -> No
     assert "\nDescription: New description" in shared_change.new_values
 
 
-def test_compare_summarizes_schema_diffs_with_missing_keys_as_zero(monkeypatch) -> None:
-    monkeypatch.setattr(
-        comparison_module,
-        "_orion_diff_schemas",
-        lambda: comparison_module._fallback_diff_schemas,
-    )
+def test_compare_summarizes_schema_diffs_with_missing_keys_as_zero() -> None:
     baseline = replace(
         _parsed_graph(name="Baseline"),
         schema=_schema(
@@ -334,6 +386,86 @@ def test_compare_summarizes_schema_diffs_with_missing_keys_as_zero(monkeypatch) 
         "Subject prefix / NCBIGene"
         for change in schema.edge_detail_changes
     )
+
+
+def test_schema_diff_calls_orion_with_graph_metadata_documents(monkeypatch) -> None:
+    captured: dict[str, dict[str, object]] = {}
+
+    def fake_diff_schemas(old_document: dict[str, object], new_document: dict[str, object]) -> dict:
+        captured["old"] = old_document
+        captured["new"] = new_document
+        return {
+            "old": {
+                "schema": {"@id": "old-schema"},
+                "graph": {"@id": old_document["@id"]},
+            },
+            "new": {
+                "schema": {"@id": "new-schema"},
+                "graph": {"@id": new_document["@id"]},
+            },
+            "diff": {
+                "nodes": [],
+                "nodes_summary": {
+                    "total_count": {
+                        "old": 1,
+                        "new": 1,
+                        "delta": 0,
+                        "percent_change": 0,
+                    }
+                },
+                "edges": [],
+                "edges_summary": {
+                    "total_count": {
+                        "old": 2,
+                        "new": 3,
+                        "delta": 1,
+                        "percent_change": 50,
+                    },
+                    "primary_knowledge_sources": {
+                        "added": {},
+                        "removed": {},
+                        "changed": {
+                            "infores:a": {
+                                "old": 2,
+                                "new": 3,
+                                "delta": 1,
+                                "percent_change": 50,
+                            }
+                        },
+                    },
+                },
+            },
+        }
+
+    monkeypatch.setattr(comparison_module, "_diff_schemas", fake_diff_schemas)
+    baseline = replace(
+        _parsed_graph(name="Baseline"),
+        schema=_schema_empty(),
+        raw={
+            "@id": "https://metadata.example/graphs/baseline",
+            "name": "Baseline",
+            "schema": {"@id": "https://metadata.example/graphs/baseline/schema.json"},
+        },
+    )
+    target = replace(
+        _parsed_graph(name="Target"),
+        schema=_schema_empty(),
+        raw={
+            "@id": "https://metadata.example/graphs/target",
+            "name": "Target",
+            "schema": {"@id": "https://metadata.example/graphs/target/schema.json"},
+        },
+    )
+
+    schema = compare([baseline, target]).comparisons[0].schema
+
+    assert captured["old"]["@id"] == "https://metadata.example/graphs/baseline"
+    assert captured["old"]["name"] == "Baseline"
+    assert isinstance(captured["old"]["schema"], dict)
+    assert "nodes" in captured["old"]["schema"]
+    assert captured["new"]["@id"] == "https://metadata.example/graphs/target"
+    assert schema.edge_source_changes[0].label == "infores:a"
+    assert schema.edge_source_changes[0].count.percent_change == 50
 
 
 def test_schema_percent_change_preserves_orion_value(monkeypatch) -> None:

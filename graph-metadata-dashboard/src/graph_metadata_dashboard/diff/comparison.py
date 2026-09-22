@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 
 from graph_metadata_dashboard.parsers.models import (
-    GraphSchema,
     KnowledgeSource,
     ParsedGraphMetadata,
     SubgraphSource,
@@ -58,6 +56,13 @@ class SourceFieldDifference:
 
 
 @dataclass(frozen=True)
+class SubgraphFieldDifference:
+    field: str
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
 class SourceChange:
     source_id: str
     name: str
@@ -72,9 +77,11 @@ class SourceChange:
 class SubgraphChange:
     source_id: str
     name: str
-    node_delta: CountDelta
-    edge_delta: CountDelta
     status: str
+    changed_fields: tuple[str, ...] = ()
+    old_values: str = ""
+    new_values: str = ""
+    field_differences: tuple[SubgraphFieldDifference, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -217,7 +224,7 @@ def _compare_pair(
         field_differences=_field_differences(old_graph, new_graph),
         source_changes=_source_changes(old_graph.knowledge_sources, new_graph.knowledge_sources),
         subgraph_changes=_subgraph_changes(old_graph.subgraphs, new_graph.subgraphs),
-        schema=_schema_diff_summary(old_graph.schema, new_graph.schema, top_n=top_n),
+        schema=_schema_diff_summary(old_graph, new_graph, top_n=top_n),
     )
 
 
@@ -455,62 +462,155 @@ def _subgraph_changes(
     for source_id in sorted(set(old_index) | set(new_index)):
         old_source = old_index.get(source_id)
         new_source = new_index.get(source_id)
-        status = _entry_status(old_source, new_source)
-        node_delta = _count_delta(
-            old_source.node_count if old_source else None,
-            new_source.node_count if new_source else None,
+        field_differences = (
+            _subgraph_field_differences(old_source, new_source)
+            if old_source is not None and new_source is not None
+            else ()
         )
-        edge_delta = _count_delta(
-            old_source.edge_count if old_source else None,
-            new_source.edge_count if new_source else None,
+        status = _subgraph_status(
+            old_source,
+            new_source,
+            field_differences=field_differences,
         )
-        if status == "unchanged" and node_delta.delta == 0 and edge_delta.delta == 0:
+        if status == "unchanged":
             continue
         source = new_source or old_source
         changes.append(
             SubgraphChange(
                 source_id=source_id,
                 name=(source.name if source else "") or "Unknown",
-                node_delta=node_delta,
-                edge_delta=edge_delta,
                 status=status,
+                changed_fields=_subgraph_changed_fields(
+                    status,
+                    field_differences=field_differences,
+                ),
+                old_values=_subgraph_change_values(
+                    old_source,
+                    field_differences,
+                    side="old",
+                ),
+                new_values=_subgraph_change_values(
+                    new_source,
+                    field_differences,
+                    side="new",
+                ),
+                field_differences=field_differences,
             )
         )
     return tuple(
         sorted(
             changes,
-            key=lambda change: max(
-                abs(change.node_delta.delta or 0),
-                abs(change.edge_delta.delta or 0),
-            ),
-            reverse=True,
+            key=lambda change: (change.status != "removed", change.source_id),
         )
     )
 
 
 def _subgraph_key(source: SubgraphSource) -> str:
-    return source.id or source.name or "Unknown"
+    source_id = source.id.strip()
+    for marker in ("/releases/", "/graphs/"):
+        if marker not in source_id:
+            continue
+        tail = source_id.split(marker, maxsplit=1)[1].strip("/")
+        graph_slug = tail.split("/", maxsplit=1)[0].strip()
+        if graph_slug:
+            return graph_slug.lower()
+    return source_id or source.name or "Unknown"
 
 
-def _entry_status(old_entry: object | None, new_entry: object | None) -> str:
-    if old_entry is None:
+def _subgraph_status(
+    old_source: SubgraphSource | None,
+    new_source: SubgraphSource | None,
+    *,
+    field_differences: tuple[SubgraphFieldDifference, ...],
+) -> str:
+    if old_source is None:
         return "added"
-    if new_entry is None:
+    if new_source is None:
         return "removed"
-    return "changed"
+    if field_differences:
+        return "changed"
+    return "unchanged"
+
+
+def _subgraph_field_differences(
+    old_source: SubgraphSource,
+    new_source: SubgraphSource,
+) -> tuple[SubgraphFieldDifference, ...]:
+    fields = (
+        ("ID", "id"),
+        ("Name", "name"),
+        ("Release version", "release_version"),
+        ("Build version", "build_version"),
+    )
+    differences = []
+    for label, attribute in fields:
+        old_value = _subgraph_field_value(old_source, attribute)
+        new_value = _subgraph_field_value(new_source, attribute)
+        if old_value != new_value:
+            differences.append(
+                SubgraphFieldDifference(
+                    field=label,
+                    old=_clip_source_value(old_value),
+                    new=_clip_source_value(new_value),
+                )
+            )
+    return tuple(differences)
+
+
+def _subgraph_field_value(source: SubgraphSource, attribute: str) -> str:
+    return " ".join(str(getattr(source, attribute) or "").split())
+
+
+def _subgraph_changed_fields(
+    status: str,
+    *,
+    field_differences: tuple[SubgraphFieldDifference, ...],
+) -> tuple[str, ...]:
+    if status == "added":
+        return ("Added",)
+    if status == "removed":
+        return ("Removed",)
+    return tuple(difference.field for difference in field_differences)
+
+
+def _subgraph_change_values(
+    source: SubgraphSource | None,
+    field_differences: tuple[SubgraphFieldDifference, ...],
+    *,
+    side: str,
+) -> str:
+    if source is None:
+        return "None"
+    if field_differences:
+        return "\n".join(
+            f"{difference.field}: {difference.old if side == 'old' else difference.new}"
+            for difference in field_differences
+        )
+    summary_fields = (
+        ("Release version", source.release_version),
+        ("Build version", source.build_version),
+    )
+    values = [
+        f"{label}: {_clip_source_value(str(value))}"
+        for label, value in summary_fields
+        if str(value or "").strip()
+    ]
+    return "\n".join(values) if values else "No populated subgraph metadata fields"
 
 
 def _schema_diff_summary(
-    old_schema: GraphSchema | None,
-    new_schema: GraphSchema | None,
+    old_graph: ParsedGraphMetadata,
+    new_graph: ParsedGraphMetadata,
     *,
     top_n: int,
 ) -> SchemaDiffSummary:
-    if old_schema is None or new_schema is None:
+    old_document = _orion_schema_diff_document(old_graph)
+    new_document = _orion_schema_diff_document(new_graph)
+    if old_document is None or new_document is None:
         missing = []
-        if old_schema is None:
+        if old_document is None:
             missing.append("baseline")
-        if new_schema is None:
+        if new_document is None:
             missing.append("comparison")
         return SchemaDiffSummary(
             available=False,
@@ -518,7 +618,7 @@ def _schema_diff_summary(
         )
 
     try:
-        raw_diff = _diff_schemas(old_schema.raw, new_schema.raw)
+        raw_diff = _diff_schemas(old_document, new_document)
     except Exception as error:
         return SchemaDiffSummary(
             available=False,
@@ -574,6 +674,17 @@ def _schema_diff_summary(
         ),
         raw=raw_diff,
     )
+
+
+def _orion_schema_diff_document(graph: ParsedGraphMetadata) -> JsonObject | None:
+    """Build the graph-metadata-shaped document expected by ORION's schema diff."""
+    if graph.schema is None:
+        return None
+    document = dict(graph.raw)
+    if _is_schema_section(document.get("schema")):
+        return document
+    document["schema"] = _schema_section(graph.schema.raw, "schema")
+    return document
 
 
 def _node_type_changes(value: Any, *, top_n: int) -> tuple[TypeCountChange, ...]:
@@ -869,43 +980,9 @@ def _float_or_none(value: Any) -> float | None:
 
 
 def _diff_schemas(old_document: JsonObject, new_document: JsonObject) -> JsonObject:
-    diff_schemas = _orion_diff_schemas()
+    from orion import diff_schemas
+
     return diff_schemas(old_document, new_document)
-
-
-@lru_cache(maxsize=1)
-def _orion_diff_schemas() -> Callable[[JsonObject, JsonObject], JsonObject]:
-    try:
-        from orion.kgx_schema_diff import diff_schemas
-    except Exception:
-        return _fallback_diff_schemas
-    return diff_schemas
-
-
-def _fallback_diff_schemas(old_document: JsonObject, new_document: JsonObject) -> JsonObject:
-    old_schema = _schema_section(old_document, "old")
-    new_schema = _schema_section(new_document, "new")
-    node_diffs = _diff_node_types(old_schema.get("nodes"), new_schema.get("nodes"))
-    edge_diffs = _diff_edge_types(old_schema.get("edges"), new_schema.get("edges"))
-    return {
-        "orion:schemaDiffFormatVersion": "fallback-1.0",
-        "old": _document_reference(old_document),
-        "new": _document_reference(new_document),
-        "diff": {
-            "nodes": [entry for entry in node_diffs if entry["status"] != "unchanged"],
-            "nodes_summary": _diff_nodes_summary(
-                old_schema.get("nodes_summary"),
-                new_schema.get("nodes_summary"),
-                node_diffs,
-            ),
-            "edges": [entry for entry in edge_diffs if entry["status"] != "unchanged"],
-            "edges_summary": _diff_edges_summary(
-                old_schema.get("edges_summary"),
-                new_schema.get("edges_summary"),
-                edge_diffs,
-            ),
-        },
-    }
 
 
 def _schema_section(document: JsonObject, label: str) -> JsonObject:
@@ -924,244 +1001,3 @@ def _schema_section(document: JsonObject, label: str) -> JsonObject:
 def _is_schema_section(value: Any) -> bool:
     section_keys = {"nodes", "nodes_summary", "edges", "edges_summary"}
     return isinstance(value, dict) and section_keys <= set(value)
-
-
-def _document_reference(document: JsonObject) -> JsonObject:
-    graph = document.get("isPartOf")
-    if isinstance(graph, str):
-        graph = {"@id": graph}
-    if not isinstance(graph, dict):
-        graph = document
-    return {
-        "schema": {"@id": document.get("@id", "")},
-        "graph": {"@id": graph.get("@id", "")},
-    }
-
-
-def _diff_nodes_summary(old: Any, new: Any, node_diffs: Sequence[JsonObject]) -> JsonObject:
-    old_summary = _mapping(old)
-    new_summary = _mapping(new)
-    return {
-        "total_count": _raw_count_diff(
-            old_summary.get("total_count"),
-            new_summary.get("total_count"),
-        ),
-        "types": _type_diff_summary(node_diffs),
-        "id_prefixes": _raw_map_diff(
-            old_summary.get("id_prefixes"),
-            new_summary.get("id_prefixes"),
-        ),
-        "attributes": _raw_map_diff(old_summary.get("attributes"), new_summary.get("attributes")),
-    }
-
-
-def _diff_edges_summary(old: Any, new: Any, edge_diffs: Sequence[JsonObject]) -> JsonObject:
-    old_summary = _mapping(old)
-    new_summary = _mapping(new)
-    return {
-        "total_count": _raw_count_diff(
-            old_summary.get("total_count"),
-            new_summary.get("total_count"),
-        ),
-        "types": _type_diff_summary(edge_diffs),
-        "predicates": _raw_map_diff(old_summary.get("predicates"), new_summary.get("predicates")),
-        "primary_knowledge_sources": _raw_map_diff(
-            old_summary.get("primary_knowledge_sources"),
-            new_summary.get("primary_knowledge_sources"),
-        ),
-        "predicates_by_knowledge_source": _raw_nested_map_diff(
-            old_summary.get("predicates_by_knowledge_source"),
-            new_summary.get("predicates_by_knowledge_source"),
-        ),
-        "qualifiers": _raw_map_diff(old_summary.get("qualifiers"), new_summary.get("qualifiers")),
-        "attributes": _raw_map_diff(old_summary.get("attributes"), new_summary.get("attributes")),
-    }
-
-
-def _diff_node_types(old_nodes: Any, new_nodes: Any) -> list[JsonObject]:
-    old_index = _index_entries(old_nodes, _node_type_key, ("id_prefixes", "attributes"))
-    new_index = _index_entries(new_nodes, _node_type_key, ("id_prefixes", "attributes"))
-    rows = []
-    for key in sorted(set(old_index) | set(new_index)):
-        old_entry = old_index.get(key)
-        new_entry = new_index.get(key)
-        old_entry_safe = old_entry or {}
-        new_entry_safe = new_entry or {}
-        rows.append(
-            {
-                "category": list(key),
-                "status": _raw_entry_status(old_entry, new_entry),
-                "count": _raw_count_diff(old_entry_safe.get("count"), new_entry_safe.get("count")),
-                "id_prefixes": _raw_map_diff(
-                    old_entry_safe.get("id_prefixes"),
-                    new_entry_safe.get("id_prefixes"),
-                ),
-                "attributes": _raw_map_diff(
-                    old_entry_safe.get("attributes"),
-                    new_entry_safe.get("attributes"),
-                ),
-            }
-        )
-    return _sort_by_impact(rows)
-
-
-def _diff_edge_types(old_edges: Any, new_edges: Any) -> list[JsonObject]:
-    fields = (
-        "primary_knowledge_sources",
-        "qualifiers",
-        "attributes",
-        "subject_id_prefixes",
-        "object_id_prefixes",
-    )
-    old_index = _index_entries(old_edges, _edge_type_key, fields)
-    new_index = _index_entries(new_edges, _edge_type_key, fields)
-    rows = []
-    for key in sorted(set(old_index) | set(new_index)):
-        old_entry = old_index.get(key)
-        new_entry = new_index.get(key)
-        old_entry_safe = old_entry or {}
-        new_entry_safe = new_entry or {}
-        subject_categories, predicate, object_categories = key
-        rows.append(
-            {
-                "subject_category": list(subject_categories),
-                "predicate": predicate,
-                "object_category": list(object_categories),
-                "status": _raw_entry_status(old_entry, new_entry),
-                "count": _raw_count_diff(old_entry_safe.get("count"), new_entry_safe.get("count")),
-                **{
-                    field: _raw_map_diff(old_entry_safe.get(field), new_entry_safe.get(field))
-                    for field in fields
-                },
-            }
-        )
-    return _sort_by_impact(rows)
-
-
-def _index_entries(
-    entries: Any,
-    key_func: Callable[[Mapping[str, Any]], tuple[Any, ...]],
-    map_fields: Sequence[str],
-) -> dict[tuple[Any, ...], JsonObject]:
-    indexed: dict[tuple[Any, ...], JsonObject] = {}
-    for entry in _sequence_of_mappings(entries):
-        key = key_func(entry)
-        existing = indexed.get(key)
-        if existing is None:
-            indexed[key] = {
-                "count": int_or_none(entry.get("count")) or 0,
-                **{field: _int_mapping(entry.get(field)) for field in map_fields},
-            }
-            continue
-        existing["count"] += int_or_none(entry.get("count")) or 0
-        for field in map_fields:
-            for map_key, value in _int_mapping(entry.get(field)).items():
-                existing[field][map_key] = existing[field].get(map_key, 0) + value
-    return indexed
-
-
-def _node_type_key(entry: Mapping[str, Any]) -> tuple[str, ...]:
-    return tuple(sorted(_category_values(entry.get("category") or entry.get("node_types"))))
-
-
-def _edge_type_key(entry: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (
-        tuple(sorted(_category_values(entry.get("subject_category")))),
-        entry.get("predicate"),
-        tuple(sorted(_category_values(entry.get("object_category")))),
-    )
-
-
-def _category_values(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (value,)
-    if isinstance(value, Sequence):
-        return tuple(str(item) for item in value if item is not None)
-    return ()
-
-
-def _raw_entry_status(old_entry: object | None, new_entry: object | None) -> str:
-    if old_entry is None:
-        return "added"
-    if new_entry is None:
-        return "removed"
-    return "unchanged" if old_entry == new_entry else "changed"
-
-
-def _raw_count_diff(old: Any, new: Any) -> JsonObject:
-    old_count = int_or_none(old) or 0
-    new_count = int_or_none(new) or 0
-    return {
-        "old": old_count,
-        "new": new_count,
-        "delta": new_count - old_count,
-        "percent_change": None
-        if old_count == 0
-        else round(((new_count - old_count) / old_count) * 100, 2),
-    }
-
-
-def _raw_map_diff(old: Any, new: Any) -> JsonObject:
-    old_map = _int_mapping(old)
-    new_map = _int_mapping(new)
-    return {
-        "added": _sort_count_map(
-            {key: value for key, value in new_map.items() if key not in old_map}
-        ),
-        "removed": _sort_count_map(
-            {key: value for key, value in old_map.items() if key not in new_map}
-        ),
-        "changed": {
-            key: _raw_count_diff(old_map[key], value)
-            for key, value in sorted(
-                (
-                    (key, value)
-                    for key, value in new_map.items()
-                    if key in old_map and old_map[key] != value
-                ),
-                key=lambda item: -abs(item[1] - old_map[item[0]]),
-            )
-        },
-    }
-
-
-def _raw_nested_map_diff(old: Any, new: Any) -> JsonObject:
-    old_map = _mapping(old)
-    new_map = _mapping(new)
-    return {
-        "added": {
-            str(key): _sort_count_map(_int_mapping(value))
-            for key, value in new_map.items()
-            if key not in old_map
-        },
-        "removed": {
-            str(key): _sort_count_map(_int_mapping(value))
-            for key, value in old_map.items()
-            if key not in new_map
-        },
-        "changed": {
-            str(key): _raw_map_diff(old_map[key], value)
-            for key, value in new_map.items()
-            if key in old_map and old_map[key] != value
-        },
-    }
-
-
-def _sort_count_map(values: Mapping[str, int]) -> dict[str, int]:
-    return dict(sorted(values.items(), key=lambda item: item[1], reverse=True))
-
-
-def _sort_by_impact(rows: Sequence[JsonObject]) -> list[JsonObject]:
-    return sorted(rows, key=lambda row: -abs(_mapping(row.get("count")).get("delta", 0)))
-
-
-def _type_diff_summary(entries: Sequence[JsonObject]) -> dict[str, int]:
-    tally = {"added": 0, "removed": 0, "changed": 0, "unchanged": 0}
-    for entry in entries:
-        status = str(entry.get("status") or "unchanged")
-        tally[status] = tally.get(status, 0) + 1
-    return {
-        "old": tally["removed"] + tally["changed"] + tally["unchanged"],
-        "new": tally["added"] + tally["changed"] + tally["unchanged"],
-        **tally,
-    }
