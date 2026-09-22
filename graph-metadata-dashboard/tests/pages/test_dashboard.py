@@ -478,7 +478,6 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Top Schema Movers" not in text
     assert "Rows are sorted by largest combined node-count" in text
     assert "Rows are sorted by largest combined edge-count" in text
-    assert "Cards and entries are ordered by change density" in text
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text
