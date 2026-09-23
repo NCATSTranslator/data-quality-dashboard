@@ -21,6 +21,7 @@ from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SubgraphCh
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
 from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
+from graph_metadata_dashboard.parsers.models import SubgraphSource
 from tests.conftest import load_fixture
 
 
@@ -50,6 +51,73 @@ def test_provenance_contribution_describes_single_primary_source_without_chart()
 
     assert not any(isinstance(child, dcc.Graph) for child in contribution.children)
     assert "infores:alliance" in contribution.children[0].children
+
+
+def test_provenance_contribution_uses_edge_counts_when_subgraph_node_counts_missing() -> None:
+    parsed = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    parsed = replace(
+        parsed,
+        subgraphs=(
+            SubgraphSource(
+                id="https://kgx-storage.example/releases/source-a/1.0.0/",
+                name="source-a",
+                node_count=None,
+                edge_count=25,
+                release_version="1.0.0",
+                build_version="source-a-build",
+            ),
+            SubgraphSource(
+                id="https://kgx-storage.example/releases/source-b/1.0.0/",
+                name="source-b",
+                node_count=None,
+                edge_count=10,
+                release_version="1.0.0",
+                build_version="source-b-build",
+            ),
+        ),
+    )
+
+    contribution = provenance_contribution(parsed)
+    graphs = [child for child in contribution.children if isinstance(child, dcc.Graph)]
+
+    assert "Subgraph node counts were not provided" in contribution.children[0].children
+    assert graphs
+    assert graphs[0].figure.layout.yaxis.title.text == "Edge count"
+    assert list(graphs[0].figure.data[0].y) == [25, 10]
+
+
+def test_provenance_contribution_falls_back_when_subgraph_counts_missing() -> None:
+    parsed = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    schema = parse_schema(
+        {
+            "edges_summary": {
+                "primary_knowledge_sources": {
+                    "infores:source-a": 25,
+                    "infores:source-b": 10,
+                }
+            }
+        }
+    )
+    parsed = replace(
+        parsed,
+        subgraphs=(
+            SubgraphSource(
+                id="https://kgx-storage.example/releases/source-a/1.0.0/",
+                name="source-a",
+                node_count=None,
+                edge_count=None,
+                release_version="1.0.0",
+                build_version="source-a-build",
+            ),
+        ),
+        schema=schema,
+    )
+
+    contribution = provenance_contribution(parsed)
+    text = " ".join(_flatten_text(contribution))
+
+    assert "No subgraph counts were provided" in text
+    assert "primary knowledge source" in text
 
 
 def test_upload_selection_status_lists_selected_files() -> None:
@@ -180,10 +248,11 @@ def test_loaded_graphs_summary_includes_baseline_selector() -> None:
     ]
 
 
-def test_kgx_dropdown_locks_after_graphs_are_loaded() -> None:
+def test_loaded_selection_locks_kgx_and_upload_but_allows_url_append() -> None:
     create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
     page_module = _registered_page_module("dashboard")
 
+    assert page_module._selection_count_status(3) == "3 graphs selected."
     assert page_module._selection_control_state(
         selected_source=["alliance", "ctd"],
         graph_filename=None,
@@ -206,7 +275,22 @@ def test_kgx_dropdown_locks_after_graphs_are_loaded() -> None:
                 "label": "Alliance",
             }
         ],
-    ) == (True, False, True, True, True, True, True)
+    ) == (True, False, True, False, False, True, True)
+    assert page_module._selection_control_state(
+        selected_source=["alliance", "ctd"],
+        graph_filename=None,
+        schema_filename=None,
+        graph_url="https://metadata.example/graph-metadata.json",
+        schema_url=None,
+        graph_states=[
+            {
+                "cache_key": "alliance",
+                "kind": "kgx",
+                "source_id": "alliance",
+                "label": "Alliance",
+            }
+        ],
+    ) == (False, False, True, False, False, True, True)
     assert page_module._selection_control_state(
         selected_source=[],
         graph_filename=None,
@@ -475,9 +559,16 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Primary sources" in text
     assert "Subject prefixes" in text
     assert "Object prefixes" in text
-    assert "Top Schema Movers" not in text
-    assert "Rows are sorted by largest combined node-count" in text
-    assert "Rows are sorted by largest combined edge-count" in text
+    assert "Top Change Heatmap" in text
+    assert "Attribute" in text
+    assert "Translator KG Open -> ROBOKOP" in text
+    assert "one sequential scale for normalized changes" in text
+    assert "0.5" in text
+    assert "1.0" in text
+    assert "Blue stripe: increase" in text
+    assert "Red stripe: decrease" in text
+    assert len(_find_elements_by_class(dashboard, "comparison-heatmap-table")) == 1
+    assert len(_find_elements_by_class(dashboard, "heatmap-legend")) == 1
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text
@@ -541,6 +632,277 @@ def test_schema_difference_panels_hide_added_removed_percentages() -> None:
         changed_group,
         "schema-map-delta",
     )[0].title
+
+
+def test_heatmap_changed_cell_shows_percent_and_scales_by_shared_changes() -> None:
+    small_change = comparison_components._HeatmapCell(
+        count=CountDelta(
+            old=100_000,
+            new=58_839,
+            delta=-41_161,
+            percent_change=-10.0,
+        ),
+        status="changed",
+    )
+    large_change = comparison_components._HeatmapCell(
+        count=CountDelta(
+            old=5_000_000,
+            new=2_745_844,
+            delta=-2_254_156,
+            percent_change=-10.0,
+        ),
+        status="changed",
+    )
+    rows = (
+        comparison_components._HeatmapRow(
+            key="small",
+            group="Edge triples",
+            label="Small absolute change",
+            cells=(small_change,),
+            impact=0,
+        ),
+        comparison_components._HeatmapRow(
+            key="large",
+            group="Edge triples",
+            label="Large absolute change",
+            cells=(large_change,),
+            impact=0,
+        ),
+    )
+    scale = comparison_components._heatmap_scale(rows)
+
+    small_cell = comparison_components._heatmap_cell(
+        small_change,
+        scale=scale,
+    )
+    large_cell = comparison_components._heatmap_cell(
+        large_change,
+        scale=scale,
+    )
+
+    assert "-41,161" in " ".join(_flatten_text(small_cell))
+    assert "-10.00%" in " ".join(_flatten_text(small_cell))
+    assert "-2,254,156" in " ".join(_flatten_text(large_cell))
+    assert "-10.00%" in " ".join(_flatten_text(large_cell))
+    assert small_cell.style["background"] != large_cell.style["background"]
+
+
+def test_heatmap_removed_cell_hides_percent_but_scales_by_magnitude() -> None:
+    small_removed = comparison_components._HeatmapCell(
+        count=CountDelta(
+            old=41_161,
+            new=0,
+            delta=-41_161,
+            percent_change=None,
+        ),
+        status="removed",
+    )
+    large_removed = comparison_components._HeatmapCell(
+        count=CountDelta(
+            old=2_254_156,
+            new=0,
+            delta=-2_254_156,
+            percent_change=None,
+        ),
+        status="removed",
+    )
+    rows = (
+        comparison_components._HeatmapRow(
+            key="small",
+            group="Edge triples",
+            label="Small removed",
+            cells=(small_removed,),
+            impact=0,
+        ),
+        comparison_components._HeatmapRow(
+            key="large",
+            group="Edge triples",
+            label="Large removed",
+            cells=(large_removed,),
+            impact=0,
+        ),
+    )
+    scale = comparison_components._heatmap_scale(rows)
+
+    small_ratio = comparison_components._heatmap_cell_visual_ratio(
+        small_removed,
+        scale=scale,
+    )
+    large_ratio = comparison_components._heatmap_cell_visual_ratio(
+        large_removed,
+        scale=scale,
+    )
+    small_cell = comparison_components._heatmap_cell(
+        small_removed,
+        scale=scale,
+    )
+    large_cell = comparison_components._heatmap_cell(
+        large_removed,
+        scale=scale,
+    )
+
+    assert comparison_components._heatmap_cell_percent_text(large_removed) is None
+    assert large_ratio > small_ratio
+    assert "-41,161" in " ".join(_flatten_text(small_cell))
+    assert "-2,254,156" in " ".join(_flatten_text(large_cell))
+    assert "100.00%" not in " ".join(_flatten_text(large_cell))
+    assert small_cell.style["background"] != large_cell.style["background"]
+
+
+def test_heatmap_ranking_reserves_rows_for_each_comparison_column() -> None:
+    first_comparison_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=f"first-{index}",
+            group="Edge triples",
+            label=f"First comparison row {index}",
+            cells=(
+                comparison_components._HeatmapCell(
+                    count=CountDelta(
+                        old=10_000_000 - index,
+                        new=0,
+                        delta=-(10_000_000 - index),
+                        percent_change=None,
+                    ),
+                    status="removed",
+                ),
+                None,
+            ),
+            impact=0,
+        )
+        for index in range(25)
+    )
+    second_comparison_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=f"second-{index}",
+            group="Node categories",
+            label=f"Second comparison row {index}",
+            cells=(
+                None,
+                comparison_components._HeatmapCell(
+                    count=CountDelta(
+                        old=1_000 - index,
+                        new=0,
+                        delta=-(1_000 - index),
+                        percent_change=None,
+                    ),
+                    status="removed",
+                ),
+            ),
+            impact=0,
+        )
+        for index in range(5)
+    )
+    rows = first_comparison_rows + second_comparison_rows
+    scale = comparison_components._heatmap_scale(rows)
+    scored_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=row.key,
+            group=row.group,
+            label=row.label,
+            cells=row.cells,
+            impact=sum(
+                comparison_components._heatmap_cell_visual_ratio(cell, scale=scale)
+                for cell in row.cells
+                if cell
+            ),
+        )
+        for row in rows
+    )
+
+    ranked = comparison_components._rank_heatmap_rows(
+        scored_rows,
+        scale=scale,
+        comparison_count=2,
+    )
+
+    assert len(ranked) == comparison_components.HEATMAP_ROW_LIMIT
+    assert sum(1 for row in ranked if row.cells[1] is not None) == 5
+
+
+def test_heatmap_ranking_uses_global_rows_first_for_multi_column_comparison() -> None:
+    pair_specific_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=f"pair-specific-{index}",
+            group="Edge triples",
+            label=f"Pair-specific row {index}",
+            cells=(
+                comparison_components._HeatmapCell(
+                    count=CountDelta(
+                        old=10_000_000 - index,
+                        new=0,
+                        delta=-(10_000_000 - index),
+                        percent_change=None,
+                    ),
+                    status="removed",
+                ),
+                None,
+            ),
+            impact=0,
+        )
+        for index in range(25)
+    )
+    global_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=f"global-{index}",
+            group="Node categories",
+            label=f"Global row {index}",
+            cells=(
+                comparison_components._HeatmapCell(
+                    count=CountDelta(
+                        old=100 + index,
+                        new=0,
+                        delta=-(100 + index),
+                        percent_change=None,
+                    ),
+                    status="removed",
+                ),
+                comparison_components._HeatmapCell(
+                    count=CountDelta(
+                        old=90 + index,
+                        new=0,
+                        delta=-(90 + index),
+                        percent_change=None,
+                    ),
+                    status="removed",
+                ),
+            ),
+            impact=0,
+        )
+        for index in range(3)
+    )
+    rows = pair_specific_rows + global_rows
+    scale = comparison_components._heatmap_scale(rows)
+    scored_rows = tuple(
+        comparison_components._HeatmapRow(
+            key=row.key,
+            group=row.group,
+            label=row.label,
+            cells=row.cells,
+            impact=sum(
+                comparison_components._heatmap_cell_visual_ratio(cell, scale=scale)
+                for cell in row.cells
+                if cell
+            ),
+        )
+        for row in rows
+    )
+
+    ranked = comparison_components._rank_heatmap_rows(
+        scored_rows,
+        scale=scale,
+        comparison_count=2,
+    )
+
+    ranked_keys = {row.key for row in ranked}
+    assert all(row.key in ranked_keys for row in global_rows)
+    assert all(row.key.startswith("global") for row in ranked[: len(global_rows)])
+    assert all(
+        comparison_components._heatmap_row_coverage(row) > 1
+        for row in ranked[: len(global_rows)]
+    )
+    assert sum(1 for row in ranked if row.key.startswith("pair-specific")) < (
+        comparison_components.HEATMAP_ROW_LIMIT
+    )
 
 
 def _registered_page_module(module_basename: str) -> object:

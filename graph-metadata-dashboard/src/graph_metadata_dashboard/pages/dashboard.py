@@ -115,8 +115,9 @@ def layout() -> html.Div:
                                 children=[
                                     html.H4("Metadata URL"),
                                     html.P(
-                                        "Input a URL to add to selection; input another to add "
-                                        "more to selection if needed.",
+                                        "Input a URL to add to selection; after loading, input "
+                                        "another URL and click Add selected metadata to append "
+                                        "another graph.",
                                         className="selector-help",
                                     ),
                                     dcc.Input(
@@ -667,15 +668,9 @@ def register_callbacks(
                 "schema_url": "",
             }
 
-            if len(loaded_states) == 1:
-                return _load_graph_result(
-                    graph_state=merged_states,
-                    status=f"Loaded {loaded_states[0]['label']}.",
-                    **reset_one_time_inputs,
-                )
             return _load_graph_result(
                 graph_state=merged_states,
-                status=f"Loaded {len(loaded_states)} graphs.",
+                status=_selection_count_status(len(merged_states)),
                 **reset_one_time_inputs,
             )
         except Exception as error:
@@ -1355,6 +1350,11 @@ def _clean_url(value: str | None) -> str | None:
     return stripped or None
 
 
+def _selection_count_status(count: int) -> str:
+    noun = "graph" if count == 1 else "graphs"
+    return f"{count} {noun} selected."
+
+
 def _normalize_graph_states(
     graph_states: list[GraphState] | GraphState | None,
 ) -> list[GraphState]:
@@ -1407,7 +1407,8 @@ def _selection_control_state(
 ) -> tuple[bool, bool, bool, bool, bool, bool, bool]:
     loaded_states = _normalize_graph_states(graph_states)
     if loaded_states:
-        return True, False, True, True, True, True, True
+        has_pending_url = bool(_clean_url(graph_url))
+        return not has_pending_url, False, True, False, False, True, True
     has_loadable_selection = bool(
         _selected_source_ids(selected_source)
         or graph_filename
@@ -1718,8 +1719,9 @@ def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
                                 children=[
                                     html.H3(_mode_label(len(graph_states))),
                                     html.P(
-                                        "Click Reset selection button above to clear this "
-                                        "selection before choosing a new set of graphs.",
+                                        "Use Metadata URL above to append another graph, or "
+                                        "click Reset selection to clear this selection before "
+                                        "choosing a new set of graphs.",
                                         className="selection-reset-note",
                                     ),
                                 ],

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from dash import dash_table, html
 
@@ -17,6 +19,29 @@ from graph_metadata_dashboard.diff import (
     compare,
 )
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
+
+HEATMAP_ROW_LIMIT = 20
+
+
+@dataclass(frozen=True)
+class _HeatmapCell:
+    count: CountDelta
+    status: str
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class _HeatmapRow:
+    key: str
+    group: str
+    label: str
+    cells: tuple[_HeatmapCell | None, ...]
+    impact: float
+
+
+@dataclass(frozen=True)
+class _HeatmapScale:
+    absolute: float
 
 
 def comparison_dashboard(
@@ -51,6 +76,7 @@ def comparison_dashboard(
             ),
             _message_list(load_errors),
             _n_way_overview(result.comparisons),
+            _comparison_heatmap(result.comparisons),
             *[
                 _comparison_pair_section(
                     pair,
@@ -139,6 +165,588 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
             html.Table(className="comparison-overview-table", children=rows),
         ],
     )
+
+
+def _comparison_heatmap(comparisons: tuple[GraphComparison, ...]) -> html.Div | str:
+    rows = _heatmap_rows(comparisons)
+    if not rows:
+        return ""
+    scale = _heatmap_scale(rows)
+    return html.Div(
+        className="comparison-section comparison-heatmap-section",
+        children=[
+            html.H4("Top Change Heatmap"),
+            html.P(
+                "Largest cross-cutting changes across graph totals, source metadata, "
+                "node categories, edge triples, and schema rollups. Cell color uses one "
+                "sequential scale for normalized changes across all rows. Rows are capped "
+                f"at {HEATMAP_ROW_LIMIT}.",
+                className="comparison-table-note",
+            ),
+            _heatmap_legend(),
+            html.Div(
+                className="comparison-heatmap-wrap",
+                children=[
+                    html.Table(
+                        className="comparison-heatmap-table",
+                        children=[
+                            html.Thead(
+                                html.Tr(
+                                    [
+                                        html.Th("Type"),
+                                        html.Th("Attribute"),
+                                        *[
+                                            html.Th(
+                                                f"{_graph_title(pair.baseline)} -> "
+                                                f"{_graph_title(pair.target)}"
+                                            )
+                                            for pair in comparisons
+                                        ],
+                                    ]
+                                )
+                            ),
+                            html.Tbody(
+                                [
+                                    html.Tr(
+                                        [
+                                            html.Th(
+                                                row.group,
+                                                className="heatmap-row-group-cell",
+                                            ),
+                                            html.Th(
+                                                row.label,
+                                                className="heatmap-row-label-cell",
+                                            ),
+                                            *[
+                                                _heatmap_cell(
+                                                    cell,
+                                                    scale=scale,
+                                                )
+                                                for cell in row.cells
+                                            ],
+                                        ]
+                                    )
+                                    for row in rows
+                                ]
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def _heatmap_rows(comparisons: tuple[GraphComparison, ...]) -> tuple[_HeatmapRow, ...]:
+    drafts: dict[str, tuple[str, str, list[_HeatmapCell | None]]] = {}
+    for index, pair in enumerate(comparisons):
+        for key, group, label, cell in _heatmap_pair_cells(pair):
+            _, _, cells = drafts.setdefault(
+                key,
+                (group, label, [None for _ in comparisons]),
+            )
+            cells[index] = cell
+    rows = tuple(
+        _HeatmapRow(
+            key=key,
+            group=group,
+            label=label,
+            cells=tuple(cells),
+            impact=0.0,
+        )
+        for key, (group, label, cells) in drafts.items()
+    )
+    scale = _heatmap_scale(rows)
+    scored_rows = tuple(
+        _HeatmapRow(
+            key=row.key,
+            group=row.group,
+            label=row.label,
+            cells=row.cells,
+            impact=sum(
+                _heatmap_cell_visual_ratio(
+                    cell,
+                    scale=scale,
+                )
+                for cell in row.cells
+                if cell
+            ),
+        )
+        for row in rows
+    )
+    return _rank_heatmap_rows(
+        scored_rows,
+        scale=scale,
+        comparison_count=len(comparisons),
+    )
+
+
+def _rank_heatmap_rows(
+    rows: tuple[_HeatmapRow, ...],
+    *,
+    scale: _HeatmapScale,
+    comparison_count: int,
+) -> tuple[_HeatmapRow, ...]:
+    if not rows:
+        return ()
+    if comparison_count > 1:
+        return _rank_heatmap_rows_global_first(
+            rows,
+            scale=scale,
+            comparison_count=comparison_count,
+        )
+    return _rank_heatmap_rows_pair_balanced(
+        rows,
+        scale=scale,
+        comparison_count=comparison_count,
+    )
+
+
+def _rank_heatmap_rows_pair_balanced(
+    rows: tuple[_HeatmapRow, ...],
+    *,
+    scale: _HeatmapScale,
+    comparison_count: int,
+) -> tuple[_HeatmapRow, ...]:
+    selected: dict[str, _HeatmapRow] = {}
+    per_comparison_quota = max(1, HEATMAP_ROW_LIMIT // max(1, comparison_count))
+    for index in range(comparison_count):
+        candidates = sorted(
+            (row for row in rows if index < len(row.cells) and row.cells[index] is not None),
+            key=lambda row: (
+                -_heatmap_cell_visual_ratio(row.cells[index], scale=scale),
+                -_heatmap_cell_absolute_impact(row.cells[index]),
+                row.group,
+                row.label,
+            ),
+        )
+        for row in candidates[:per_comparison_quota]:
+            selected[row.key] = row
+    for row in _sort_heatmap_rows(rows):
+        if len(selected) >= HEATMAP_ROW_LIMIT:
+            break
+        selected.setdefault(row.key, row)
+    return _sort_heatmap_rows(tuple(selected.values()))[:HEATMAP_ROW_LIMIT]
+
+
+def _rank_heatmap_rows_global_first(
+    rows: tuple[_HeatmapRow, ...],
+    *,
+    scale: _HeatmapScale,
+    comparison_count: int,
+) -> tuple[_HeatmapRow, ...]:
+    selected: dict[str, _HeatmapRow] = {}
+    global_rows = tuple(row for row in rows if _heatmap_row_coverage(row) > 1)
+    for row in sorted(global_rows, key=_heatmap_global_sort_key):
+        if len(selected) >= HEATMAP_ROW_LIMIT:
+            break
+        selected[row.key] = row
+    if len(selected) >= HEATMAP_ROW_LIMIT:
+        return tuple(selected.values())[:HEATMAP_ROW_LIMIT]
+
+    per_column_candidates = [
+        sorted(
+            (
+                row
+                for row in rows
+                if row.key not in selected
+                and index < len(row.cells)
+                and row.cells[index] is not None
+            ),
+            key=lambda row: (
+                -_heatmap_cell_visual_ratio(row.cells[index], scale=scale),
+                -_heatmap_cell_absolute_impact(row.cells[index]),
+                row.group,
+                row.label,
+            ),
+        )
+        for index in range(comparison_count)
+    ]
+    positions = [0 for _ in range(comparison_count)]
+    while len(selected) < HEATMAP_ROW_LIMIT:
+        added = False
+        for index, candidates in enumerate(per_column_candidates):
+            while positions[index] < len(candidates):
+                row = candidates[positions[index]]
+                positions[index] += 1
+                if row.key in selected:
+                    continue
+                selected[row.key] = row
+                added = True
+                break
+            if len(selected) >= HEATMAP_ROW_LIMIT:
+                break
+        if not added:
+            break
+    return tuple(selected.values())[:HEATMAP_ROW_LIMIT]
+
+
+def _sort_heatmap_rows(rows: tuple[_HeatmapRow, ...]) -> tuple[_HeatmapRow, ...]:
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                -row.impact,
+                -_heatmap_row_magnitude_impact(row),
+                row.group,
+                row.label,
+            ),
+        )
+    )
+
+
+def _heatmap_global_sort_key(row: _HeatmapRow) -> tuple[int, float, float, str, str]:
+    return (
+        -_heatmap_row_coverage(row),
+        -row.impact,
+        -_heatmap_row_magnitude_impact(row),
+        row.group,
+        row.label,
+    )
+
+
+def _heatmap_row_coverage(row: _HeatmapRow) -> int:
+    return sum(1 for cell in row.cells if cell is not None)
+
+
+def _heatmap_pair_cells(
+    pair: GraphComparison,
+) -> Iterable[tuple[str, str, str, _HeatmapCell]]:
+    yield from _heatmap_count_candidate(
+        "graph:total_nodes",
+        "Graph totals",
+        "Total nodes",
+        pair.total_nodes,
+    )
+    yield from _heatmap_count_candidate(
+        "graph:total_edges",
+        "Graph totals",
+        "Total edges",
+        pair.total_edges,
+    )
+    yield from _heatmap_metadata_candidate(
+        "metadata:graph_fields",
+        "Graph metadata",
+        "Graph fields",
+        len(pair.field_differences),
+    )
+    yield from _heatmap_metadata_candidate(
+        "metadata:sources",
+        "Graph metadata",
+        "Underlying sources",
+        len(pair.source_changes),
+    )
+    yield from _heatmap_metadata_candidate(
+        "metadata:subgraphs",
+        "Graph metadata",
+        "Subgraph sources",
+        len(pair.subgraph_changes),
+    )
+    if pair.schema.available:
+        for change in pair.schema.node_changes:
+            yield from _heatmap_count_candidate(
+                f"node:{change.label}",
+                "Node categories",
+                change.label,
+                change.count,
+                status=change.status,
+            )
+        for change in pair.schema.edge_changes:
+            label = _edge_schema_change_label(change)
+            yield from _heatmap_count_candidate(
+                f"edge:{label}",
+                "Edge triples",
+                label,
+                change.count,
+                status=change.status,
+            )
+        yield from _heatmap_map_candidates(
+            "node-prefix",
+            "Node ID prefixes",
+            pair.schema.node_id_prefix_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "node-attribute",
+            "Node attributes",
+            pair.schema.node_attribute_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "edge-predicate",
+            "Edge predicates",
+            pair.schema.edge_predicate_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "edge-source",
+            "Edge primary sources",
+            pair.schema.edge_source_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "edge-source-predicate",
+            "Edge source-predicate",
+            pair.schema.edge_source_predicate_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "edge-qualifier",
+            "Edge qualifiers",
+            pair.schema.edge_qualifier_changes,
+        )
+        yield from _heatmap_map_candidates(
+            "edge-attribute",
+            "Edge attributes",
+            pair.schema.edge_attribute_changes,
+        )
+
+
+def _heatmap_count_candidate(
+    key: str,
+    group: str,
+    label: str,
+    count: CountDelta | None,
+    *,
+    status: str = "changed",
+) -> Iterable[tuple[str, str, str, _HeatmapCell]]:
+    if count is None or not count.delta:
+        return
+    yield key, group, label, _HeatmapCell(count=count, status=status)
+
+
+def _heatmap_metadata_candidate(
+    key: str,
+    group: str,
+    label: str,
+    count: int,
+) -> Iterable[tuple[str, str, str, _HeatmapCell]]:
+    if not count:
+        return
+    yield key, group, label, _HeatmapCell(
+        count=CountDelta(old=0, new=count, delta=count, percent_change=None),
+        status="metadata",
+        detail=f"{count:,} changed",
+    )
+
+
+def _heatmap_map_candidates(
+    key_prefix: str,
+    group: str,
+    changes: tuple[MapEntryChange, ...],
+) -> Iterable[tuple[str, str, str, _HeatmapCell]]:
+    for change in changes:
+        yield from _heatmap_count_candidate(
+            f"{key_prefix}:{change.label}",
+            group,
+            change.label,
+            change.count,
+            status=change.status,
+        )
+
+
+def _heatmap_scale(rows: tuple[_HeatmapRow, ...]) -> _HeatmapScale:
+    absolute = max(
+        (_heatmap_cell_absolute_impact(cell) for row in rows for cell in row.cells if cell),
+        default=0.0,
+    )
+    return _HeatmapScale(absolute=absolute)
+
+
+def _heatmap_legend() -> html.Div:
+    return html.Div(
+        className="heatmap-legend",
+        children=[
+            html.Div(
+                className="heatmap-gradient-legend",
+                children=[
+                    html.Span("Normalized changes", className="heatmap-legend-heading"),
+                    html.Div(
+                        className="heatmap-gradient-wrap",
+                        children=[
+                            html.Div(className="heatmap-gradient-bar"),
+                            html.Div(
+                                className="heatmap-gradient-ticks",
+                                children=[
+                                    html.Span("0"),
+                                    html.Span("0.5"),
+                                    html.Span("1.0"),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="heatmap-direction-legend",
+                children=[
+                    html.Span(
+                        className="heatmap-direction-item heatmap-direction-positive",
+                        children=[
+                            html.Span(className="heatmap-direction-mark"),
+                            html.Span("Blue stripe: increase"),
+                        ],
+                    ),
+                    html.Span(
+                        className="heatmap-direction-item heatmap-direction-negative",
+                        children=[
+                            html.Span(className="heatmap-direction-mark"),
+                            html.Span("Red stripe: decrease"),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def _heatmap_cell(
+    cell: _HeatmapCell | None,
+    *,
+    scale: _HeatmapScale,
+) -> html.Td:
+    if cell is None:
+        return html.Td(className="heatmap-cell heatmap-cell-empty", children="")
+    tooltip = (
+        cell.detail
+        if cell.status == "metadata"
+        else _schema_delta_tooltip(cell.count, status=cell.status)
+    )
+    children: list[object] = [
+        html.Strong(_heatmap_cell_value(cell)),
+    ]
+    if (percent := _heatmap_cell_percent_text(cell)) is not None:
+        children.append(
+            html.Span(
+                percent,
+                className="heatmap-percent",
+                title=tooltip,
+            )
+        )
+    if cell.status in {"added", "removed", "metadata"}:
+        children.append(
+            html.Span(
+                "changed" if cell.status == "metadata" else cell.status,
+                className=f"heatmap-status heatmap-status-{cell.status}",
+            )
+        )
+    return html.Td(
+        className=(
+            "heatmap-cell "
+            f"heatmap-cell-{_heatmap_cell_direction(cell)}"
+        ),
+        title=tooltip,
+        style=_heatmap_cell_style(
+            cell,
+            scale=scale,
+        ),
+        children=children,
+    )
+
+
+def _heatmap_cell_value(cell: _HeatmapCell) -> str:
+    if cell.status == "metadata":
+        return _format_count(cell.count.new)
+    if cell.status == "changed":
+        return _format_delta(
+            CountDelta(
+                old=cell.count.old,
+                new=cell.count.new,
+                delta=cell.count.delta,
+                percent_change=None,
+            )
+        )
+    return _format_schema_delta(cell.count, status=cell.status)
+
+
+def _heatmap_cell_percent_text(cell: _HeatmapCell) -> str | None:
+    if cell.status != "changed" or cell.count.percent_change is None:
+        return None
+    sign = "+" if cell.count.percent_change > 0 else ""
+    return f"{sign}{cell.count.percent_change:,.2f}%"
+
+
+def _heatmap_cell_direction(cell: _HeatmapCell) -> str:
+    if cell.status == "metadata":
+        return "metadata"
+    if cell.status == "removed" or (cell.count.delta is not None and cell.count.delta < 0):
+        return "negative"
+    if cell.status == "added" or (cell.count.delta is not None and cell.count.delta > 0):
+        return "positive"
+    return "neutral"
+
+
+def _heatmap_cell_style(
+    cell: _HeatmapCell,
+    *,
+    scale: _HeatmapScale,
+) -> dict[str, str]:
+    ratio = _heatmap_cell_visual_ratio(
+        cell,
+        scale=scale,
+    )
+    if ratio <= 0:
+        return {}
+    return {"background": _heatmap_fill_color(ratio)}
+
+
+def _heatmap_cell_visual_ratio(
+    cell: _HeatmapCell,
+    *,
+    scale: _HeatmapScale,
+) -> float:
+    if scale.absolute <= 0:
+        return 0.0
+    relative = _heatmap_cell_relative_impact(cell)
+    absolute_ratio = _heatmap_cell_absolute_impact(cell) / scale.absolute
+    return min(1.0, relative * math.sqrt(absolute_ratio))
+
+
+def _heatmap_cell_percent_impact(cell: _HeatmapCell) -> float | None:
+    if cell.status == "changed" and cell.count.percent_change is not None:
+        return abs(cell.count.percent_change)
+    return None
+
+
+def _heatmap_cell_relative_impact(cell: _HeatmapCell) -> float:
+    delta = abs(cell.count.delta or 0)
+    denominator = max(abs(cell.count.old or 0), abs(cell.count.new or 0), delta)
+    if denominator > 0:
+        return min(1.0, delta / denominator)
+    percent_impact = _heatmap_cell_percent_impact(cell)
+    if percent_impact is not None:
+        return min(1.0, percent_impact / 100)
+    return 0.0
+
+
+def _heatmap_cell_absolute_impact(cell: _HeatmapCell) -> float:
+    value = abs(cell.count.delta or 0)
+    if value <= 0:
+        value = cell.count.new or cell.count.old or 0
+    return float(value) if value > 0 else 0.0
+
+
+def _heatmap_row_magnitude_impact(row: _HeatmapRow) -> float:
+    return sum(_heatmap_cell_absolute_impact(cell) for cell in row.cells if cell)
+
+
+def _heatmap_fill_color(ratio: float) -> str:
+    stops = (
+        (0.0, (229, 245, 249)),
+        (0.5, (153, 216, 201)),
+        (1.0, (44, 162, 95)),
+    )
+    bounded = max(0.0, min(1.0, ratio))
+    for (left_position, left_color), (right_position, right_color) in zip(
+        stops,
+        stops[1:],
+        strict=True,
+    ):
+        if bounded <= right_position:
+            span = right_position - left_position
+            weight = (bounded - left_position) / span if span else 0.0
+            rgb = tuple(
+                round(left + ((right - left) * weight))
+                for left, right in zip(left_color, right_color, strict=True)
+            )
+            return f"rgb({rgb[0]}, {rgb[1]}, {rgb[2]})"
+    red, green, blue = stops[-1][1]
+    return f"rgb({red}, {green}, {blue})"
 
 
 def _comparison_pair_section(
@@ -391,8 +999,8 @@ def _schema_summary_table(schema: SchemaDiffSummary) -> html.Div:
                 children=[
                     html.Summary("Overall Node and Edge Composition Summary Changes"),
                     html.P(
-                        "Summary data are sorted by change magnitude so the items with " \
-                        "largest differences appear first.",
+                        "Within each category, items are sorted by change magnitude "
+                        "in descending order.",
                         className="comparison-table-note",
                     ),
                     html.Div(className="schema-summary-card-grid", children=card_columns),
@@ -439,8 +1047,8 @@ def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None
                 children=[
                     html.Summary("Node Category Changes"),
                     html.P(
-                        "Rows are sorted by largest combined node-count, ID-prefix, "
-                        "and attribute changes.",
+                        "Rows are sorted by the combined magnitude of changes in "
+                        "node-count, ID-prefix, and attributes in descending order.",
                         className="comparison-table-note",
                     ),
                     _schema_rich_table(
@@ -478,8 +1086,8 @@ def _edge_schema_table(changes: tuple[EdgeSchemaChange, ...]) -> html.Div | None
                 children=[
                     html.Summary("Edge Triple Changes"),
                     html.P(
-                        "Rows are sorted by largest combined edge-count, source, qualifier, "
-                        "attribute, and ID-prefix changes.",
+                        "Rows are sorted by the combined magnitude of changes in edge-count, "
+                        "source, qualifier, attribute, and ID-prefix in descending order.",
                         className="comparison-table-note",
                     ),
                     _schema_rich_table(

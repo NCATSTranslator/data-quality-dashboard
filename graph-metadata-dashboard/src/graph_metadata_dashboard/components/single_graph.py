@@ -10,21 +10,71 @@ from graph_metadata_dashboard.viz.figures import count_bar, subgraph_contributio
 
 def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
     if parsed.subgraphs:
+        has_node_counts = any(source.node_count is not None for source in parsed.subgraphs)
+        has_edge_counts = any(source.edge_count is not None for source in parsed.subgraphs)
+        if len(parsed.subgraphs) == 1 and (has_node_counts or has_edge_counts):
+            return _single_subgraph_statement(parsed.subgraphs[0])
+        if has_node_counts:
+            return html.Div(
+                children=[
+                    dcc.Graph(figure=subgraph_contribution_bar(parsed.subgraphs)),
+                ]
+            )
+        if has_edge_counts:
+            return html.Div(
+                children=[
+                    html.P(
+                        "Subgraph node counts were not provided. Showing edge counts by "
+                        "contributing subgraph instead.",
+                        className="status-line",
+                    ),
+                    dcc.Graph(
+                        figure=subgraph_contribution_bar(
+                            parsed.subgraphs,
+                            metric="edge_count",
+                        )
+                    ),
+                ]
+            )
+        primary_source_contribution = _primary_source_contribution(parsed)
+        if primary_source_contribution is not None:
+            return primary_source_contribution
         if len(parsed.subgraphs) == 1:
             return _single_subgraph_statement(parsed.subgraphs[0])
         return html.Div(
+            className="empty-inline",
             children=[
-                dcc.Graph(figure=subgraph_contribution_bar(parsed.subgraphs)),
-            ]
+                html.P(
+                    "Subgraphs are listed, but no subgraph contribution counts are "
+                    "available for this metadata payload.",
+                    className="status-line",
+                )
+            ],
         )
 
+    primary_source_contribution = _primary_source_contribution(parsed)
+    if primary_source_contribution is not None:
+        return primary_source_contribution
+
+    return html.Div(
+        className="empty-inline",
+        children=[
+            html.P(
+                "No subgraph contribution counts are available for this metadata payload.",
+                className="status-line",
+            )
+        ],
+    )
+
+
+def _primary_source_contribution(parsed: ParsedGraphMetadata) -> html.Div | None:
     primary_sources = primary_knowledge_source_counts(parsed)
     if primary_sources:
         src_len = len(primary_sources)
         if src_len == 1:
             source, count = next(iter(primary_sources.items()))
             return _single_primary_source_statement(source, count)
-        
+
         top_n = 40
         if src_len <= top_n:
             title = f"{src_len} Primary Knowledge Source Contribution"
@@ -48,16 +98,7 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
                 ),
             ]
         )
-
-    return html.Div(
-        className="empty-inline",
-        children=[
-            html.P(
-                "No subgraph contribution counts are available for this metadata payload.",
-                className="status-line",
-            )
-        ],
-    )
+    return None
 
 
 def _single_subgraph_statement(subgraph: SubgraphSource) -> html.Div:

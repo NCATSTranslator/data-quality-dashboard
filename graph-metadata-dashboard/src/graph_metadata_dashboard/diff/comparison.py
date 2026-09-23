@@ -4,6 +4,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from orion import diff_schemas
+
 from graph_metadata_dashboard.parsers.models import (
     KnowledgeSource,
     ParsedGraphMetadata,
@@ -618,7 +620,7 @@ def _schema_diff_summary(
         )
 
     try:
-        raw_diff = _diff_schemas(old_document, new_document)
+        raw_diff = diff_schemas(old_document, new_document)
     except Exception as error:
         return SchemaDiffSummary(
             available=False,
@@ -977,12 +979,6 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _diff_schemas(old_document: JsonObject, new_document: JsonObject) -> JsonObject:
-    from orion import diff_schemas
-
-    return diff_schemas(old_document, new_document)
 
 
 def _schema_section(document: JsonObject, label: str) -> JsonObject:

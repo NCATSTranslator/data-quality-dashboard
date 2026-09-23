@@ -62,6 +62,37 @@ comparison inputs generic enough that finer-grained comparisons (e.g. a graph vs
 own `hasPart` sources) aren't precluded later, even though that's out of scope for now — comparison
 is scoped to independent top-level graphs for this iteration.
 
+## Summary visualization guidance
+
+Do not add standalone "Top Movers" or "Breaking Changes" sections by default. Those purposes are
+handled in the detailed schema panels: node category / edge triple rows are sorted by impact, and
+removed items are visually distinguished in the existing added/removed/changed groups. Avoid
+duplicating those same rows in an adjacent summary panel unless users explicitly need a separate
+digest.
+
+The remaining useful summary view is a comparison heatmap / impact matrix. This can be useful for
+two graphs and becomes more valuable for three or more. It should be cross-cutting rather than
+constrained to node or edge sections: candidate rows can include total nodes/edges, source or
+subgraph changes, node categories, edge triples, predicates, primary knowledge sources, source-
+predicate composition, prefixes, qualifiers, and attributes. Columns should represent each
+baseline-vs-target comparison, not all graph pairs.
+
+Heatmap rows must be top-N by change magnitude across all selected comparisons, not render-all.
+For two or more baseline-to-target comparison columns (that is, three or more selected graphs),
+select global rows first: rows with changes in multiple comparison columns should appear before
+pair-specific rows. If fewer than the capped row count are global, fill the remaining slots with
+the strongest pair-specific rows using a balanced round-robin across comparison columns; otherwise
+one comparison can dominate the row set and make other columns mostly empty. Use existing
+`GraphComparison` / `SchemaDiffSummary` outputs only; do not call ORION from Dash components or
+introduce a parallel diff algorithm. For each row, preserve enough context to let the user jump to
+the detailed table where the literal ORION diff is shown. Use one sequential, non-rainbow color
+scale for normalized changes rather than assigning unrelated hues to categories. Direction is
+shown separately, so do not use red/blue fills as the primary encoding. Rank and scale intensity
+with one shared change score for all statuses: relative change fraction (`abs(delta) / max(old,
+new)`) times a square-root-scaled absolute-delta ratio. This keeps added/removed rows comparable
+with changed rows without displaying fake 100% values. Display ORION percentage values for changed
+counts only. Do not render visual intensity for zero or missing changes.
+
 ## UI wiring
 
 UI mode is derived implicitly from how many graphs are loaded — 0 loaded: empty state; 1 loaded:
@@ -77,6 +108,6 @@ over those dependencies. `components/comparison.py` is the existing home for com
 components — follow its established structure when adding new summary visualizations rather than
 starting a new pattern.
 
-When building new comparison summary visualizations, also load the `dataviz` skill for chart/
-color/layout guidance, and `single-graph-visualizations` for the cardinality-handling patterns
-(top-N + search, log scale, "Other" bucket) that apply equally on the comparison side.
+When building new comparison summary visualizations, follow the heatmap guidance above and the
+existing comparison component visual language. The top-N cardinality-handling patterns from
+`single-graph-visualizations` still apply on the comparison side.

@@ -76,6 +76,10 @@ Do not implement later phases before earlier phases are complete.
 ## Coding conventions
 
 - Type hints throughout; the metadata shapes are irregular enough that types catch real bugs.
+- Add or update tests for every behavior change or new feature. Do not rely on manual dashboard
+  inspection as the only validation for new functionality.
+- When behavior changes make existing tests outdated, update or remove those tests in the same
+  change so the suite documents current functionality rather than historical behavior.
 - Write unit tests for `diff/`, `loaders/`, `parsers/`, and `cache/` independent of Dash. For
   `cache/`, test against the `MetadataCache` interface with a fake in-memory implementation.
 - Test fixtures: use three real tiers, not synthetic data — a single-source Translator graph
