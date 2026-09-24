@@ -4,6 +4,7 @@ from typing import Any
 
 from dash import dcc, html
 
+from graph_metadata_dashboard.constants import DEFAULT_TOP_COUNT
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata, SubgraphSource
 from graph_metadata_dashboard.viz.figures import count_bar, subgraph_contribution_bar
 
@@ -75,7 +76,7 @@ def _primary_source_contribution(parsed: ParsedGraphMetadata) -> html.Div | None
             source, count = next(iter(primary_sources.items()))
             return _single_primary_source_statement(source, count)
 
-        top_n = 40
+        top_n = DEFAULT_TOP_COUNT
         if src_len <= top_n:
             title = f"{src_len} Primary Knowledge Source Contribution"
         else:

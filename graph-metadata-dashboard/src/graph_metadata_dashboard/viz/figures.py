@@ -7,6 +7,7 @@ from math import sqrt
 
 import plotly.graph_objects as go
 
+from graph_metadata_dashboard.constants import DEFAULT_TOP_COUNT
 from graph_metadata_dashboard.parsers.models import (
     EdgeTriple,
     KnowledgeSourcePredicateCount,
@@ -40,7 +41,7 @@ BAR_HOVERLABEL = {
 def node_category_bar(
     nodes: tuple[NodeCategory, ...],
     *,
-    top_n: int = 40,
+    top_n: int = DEFAULT_TOP_COUNT,
     log_scale: bool = True,
 ) -> go.Figure:
     top_nodes = sorted(nodes, key=lambda item: item.count, reverse=True)[:top_n]
@@ -71,7 +72,7 @@ def node_category_bar(
 def subject_object_category_pair_bar(
     edges: tuple[EdgeTriple, ...],
     *,
-    top_n: int = 40,
+    top_n: int = DEFAULT_TOP_COUNT,
     log_scale: bool = True,
 ) -> go.Figure:
     totals: defaultdict[tuple[str, str], int] = defaultdict(int)
@@ -151,7 +152,7 @@ def subgraph_contribution_bar(
     *,
     metric: str = "node_count",
     log_scale: bool = True,
-    top_n: int = 40,
+    top_n: int = DEFAULT_TOP_COUNT,
 ) -> go.Figure:
     values: list[tuple[str, str, str, int, int | None, int | None]] = []
     for source in subgraphs:
@@ -221,7 +222,7 @@ def count_bar(
     title: str,
     xaxis_title: str,
     yaxis_title: str = "Count",
-    top_n: int = 40,
+    top_n: int = DEFAULT_TOP_COUNT,
     log_scale: bool = True,
     marker_color: str = "#b45309",
 ) -> go.Figure:
@@ -346,7 +347,7 @@ def sankey_highlight_colors(
 def predicate_sankey(
     edges: tuple[EdgeTriple, ...],
     *,
-    top_n: int | None = 40,
+    top_n: int | None = DEFAULT_TOP_COUNT,
     subject_filter: str | None = None,
     object_filters: Collection[str] | None = None,
     predicate_filters: Collection[str] | None = None,
@@ -635,7 +636,7 @@ def filter_predicate_sankey_edges(
 def selected_predicate_sankey_edges(
     edges: tuple[EdgeTriple, ...],
     *,
-    top_n: int | None = 40,
+    top_n: int | None = DEFAULT_TOP_COUNT,
     subject_filter: str | None = None,
     object_filters: Collection[str] | None = None,
     predicate_filters: Collection[str] | None = None,

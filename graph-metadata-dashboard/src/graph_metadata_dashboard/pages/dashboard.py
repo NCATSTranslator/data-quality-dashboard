@@ -18,6 +18,12 @@ from dash import (
     register_page,
 )
 
+from graph_metadata_dashboard.constants import (
+    ALL_SUBJECT_CATEGORIES_VALUE,
+    ALL_CATEGORY_SANKEY_TOP_N,
+    SOURCE_PREDICATE_SANKEY_TOP_N,
+    SUBJECT_CATEGORY_SANKEY_TOP_N
+)
 from graph_metadata_dashboard.cache import MetadataCache
 from graph_metadata_dashboard.components.comparison import comparison_dashboard
 from graph_metadata_dashboard.components.single_graph import (
@@ -51,10 +57,6 @@ from graph_metadata_dashboard.viz.figures import (
 
 GraphState = dict[str, Any]
 LoadGraphResult = tuple[object, object, object, object, object, object, object, object, object]
-ALL_SUBJECT_CATEGORIES_VALUE = "__all_categories__"
-ALL_CATEGORY_SANKEY_TOP_N = 40
-SUBJECT_CATEGORY_SANKEY_TOP_N = 200
-SOURCE_PREDICATE_SANKEY_TOP_N = 100
 
 
 def layout() -> html.Div:
