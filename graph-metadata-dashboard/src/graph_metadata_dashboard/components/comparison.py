@@ -1545,10 +1545,6 @@ def _delta_bar(
     )
 
 
-def _max_abs_delta(deltas: Iterable[CountDelta]) -> int:
-    return max((abs(delta.delta or 0) for delta in deltas), default=0)
-
-
 def _max_count_delta(deltas: Iterable[CountDelta]) -> int:
     return max((abs(delta.delta or 0) for delta in deltas), default=0)
 

@@ -19,7 +19,6 @@ OTHER_LABEL = "Other"
 MAX_AXIS_LABEL_LENGTH = 30
 MIN_SHARED_PREFIX_LENGTH = 16
 SANKEY_BASE_HEIGHT = 700
-SANKEY_PIXELS_PER_NODE = 14
 SANKEY_MAX_HEIGHT = 4200
 SOURCE_PREDICATE_NODE_BODY_PIXELS = 24
 SOURCE_PREDICATE_HEIGHT_PADDING = 120
@@ -714,10 +713,6 @@ def _sankey_title(
     if filters_applied:
         return f"Top {top_n} Matching Subject-Predicate-Object Relationship Triple Sankey Chart"
     return f"Top {top_n} Subject-Predicate-Object Relationship Triple Sankey Chart"
-
-
-def _sankey_height(labels: list[str]) -> int:
-    return min(SANKEY_MAX_HEIGHT, max(SANKEY_BASE_HEIGHT, len(labels) * SANKEY_PIXELS_PER_NODE))
 
 
 def _predicate_sankey_max_column_nodes(edges: list[tuple[str, str, str, int]]) -> int:
