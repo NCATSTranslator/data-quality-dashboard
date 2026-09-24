@@ -1,12 +1,22 @@
-name: Tests and Lint
+name: graph-metadata-dashboard Tests and Lint
 
 on:
   push:
+    paths:
+      - "graph-metadata-dashboard/**"
+      - ".github/workflows/graph-metadata-dashboard-tests.yml"
   pull_request:
+    paths:
+      - "graph-metadata-dashboard/**"
+      - ".github/workflows/graph-metadata-dashboard-tests.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: graph-metadata-dashboard
 
 jobs:
   checks:
@@ -24,6 +34,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.0.0
+        with:
+          working-directory: graph-metadata-dashboard
 
       - name: Install dependencies
         run: uv sync --frozen --extra dev
