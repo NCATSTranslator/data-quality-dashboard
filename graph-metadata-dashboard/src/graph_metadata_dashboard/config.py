@@ -5,11 +5,10 @@ from dataclasses import dataclass
 
 from graph_metadata_dashboard.constants import (
     DEFAULT_KGX_STORAGE_BASE_URL,
+    DEFAULT_REMOTE_METADATA_ALLOWED_PREFIXES,
     DEFAULT_REMOTE_METADATA_MAX_BYTES,
     DEFAULT_REQUESTS_TIMEOUT_SECONDS,
-    DEFAULT_REMOTE_METADATA_ALLOWED_PREFIXES
 )
-
 
 
 @dataclass(frozen=True)

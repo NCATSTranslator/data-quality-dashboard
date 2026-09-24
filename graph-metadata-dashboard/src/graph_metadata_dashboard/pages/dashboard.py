@@ -18,18 +18,18 @@ from dash import (
     register_page,
 )
 
-from graph_metadata_dashboard.constants import (
-    ALL_SUBJECT_CATEGORIES_VALUE,
-    ALL_CATEGORY_SANKEY_TOP_N,
-    SOURCE_PREDICATE_SANKEY_TOP_N,
-    SUBJECT_CATEGORY_SANKEY_TOP_N
-)
 from graph_metadata_dashboard.cache import MetadataCache
 from graph_metadata_dashboard.components.comparison import comparison_dashboard
 from graph_metadata_dashboard.components.single_graph import (
     provenance_contribution,
     upload_selection_status,
     url_selection_status,
+)
+from graph_metadata_dashboard.constants import (
+    ALL_CATEGORY_SANKEY_TOP_N,
+    ALL_SUBJECT_CATEGORIES_VALUE,
+    SOURCE_PREDICATE_SANKEY_TOP_N,
+    SUBJECT_CATEGORY_SANKEY_TOP_N,
 )
 from graph_metadata_dashboard.loaders.kgx_storage import (
     KgxRelease,
