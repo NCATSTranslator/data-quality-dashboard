@@ -437,7 +437,7 @@ def test_schema_diff_calls_orion_with_graph_metadata_documents(monkeypatch) -> N
             },
         }
 
-    monkeypatch.setattr(comparison_module, "diff_schemas", fake_diff_schemas)
+    monkeypatch.setattr(comparison_module, "_orion_diff_schemas", lambda: fake_diff_schemas)
     baseline = replace(
         _parsed_graph(name="Baseline"),
         schema=_schema_empty(),
@@ -469,10 +469,8 @@ def test_schema_diff_calls_orion_with_graph_metadata_documents(monkeypatch) -> N
 
 
 def test_schema_percent_change_preserves_orion_value(monkeypatch) -> None:
-    monkeypatch.setattr(
-        comparison_module,
-        "diff_schemas",
-        lambda _old, _new: {
+    def fake_diff_schemas(_old: dict[str, object], _new: dict[str, object]) -> dict[str, object]:
+        return {
             "diff": {
                 "nodes": [
                     {
@@ -497,8 +495,9 @@ def test_schema_percent_change_preserves_orion_value(monkeypatch) -> None:
                 "edges": [],
                 "edges_summary": {},
             }
-        },
-    )
+        }
+
+    monkeypatch.setattr(comparison_module, "_orion_diff_schemas", lambda: fake_diff_schemas)
     baseline = replace(_parsed_graph(name="Baseline"), schema=_schema_empty())
     target = replace(_parsed_graph(name="Target"), schema=_schema_empty())
 

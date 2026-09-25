@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
-
-from orion import diff_schemas
 
 from graph_metadata_dashboard.parsers.models import (
     KnowledgeSource,
@@ -14,6 +13,7 @@ from graph_metadata_dashboard.parsers.models import (
 )
 
 JsonObject = dict[str, Any]
+SchemaDiffFunction = Callable[[JsonObject, JsonObject], JsonObject]
 TOP_SCHEMA_DIFFS = 25
 TOP_SCHEMA_ROW_MAP_DIFFS = 6
 
@@ -600,6 +600,13 @@ def _subgraph_change_values(
     return "\n".join(values) if values else "No populated subgraph metadata fields"
 
 
+@lru_cache(maxsize=1)
+def _orion_diff_schemas() -> SchemaDiffFunction:
+    from orion import diff_schemas
+
+    return diff_schemas
+
+
 def _schema_diff_summary(
     old_graph: ParsedGraphMetadata,
     new_graph: ParsedGraphMetadata,
@@ -620,7 +627,7 @@ def _schema_diff_summary(
         )
 
     try:
-        raw_diff = diff_schemas(old_document, new_document)
+        raw_diff = _orion_diff_schemas()(old_document, new_document)
     except Exception as error:
         return SchemaDiffSummary(
             available=False,
