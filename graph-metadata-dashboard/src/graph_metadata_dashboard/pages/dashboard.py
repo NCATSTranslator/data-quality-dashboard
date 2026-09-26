@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import replace
 from typing import Any
 from urllib.parse import urlparse
@@ -17,6 +19,7 @@ from dash import (
     no_update,
     register_page,
 )
+from dash.exceptions import PreventUpdate
 
 from graph_metadata_dashboard.cache import MetadataCache
 from graph_metadata_dashboard.components.comparison import comparison_dashboard
@@ -31,6 +34,7 @@ from graph_metadata_dashboard.constants import (
     SOURCE_PREDICATE_SANKEY_TOP_N,
     SUBJECT_CATEGORY_SANKEY_TOP_N,
 )
+from graph_metadata_dashboard.diff import compare, schema_diff_download_payload
 from graph_metadata_dashboard.loaders.kgx_storage import (
     KgxRelease,
     KgxStorageClient,
@@ -66,6 +70,7 @@ def layout() -> html.Div:
             dcc.Store(id="source-predicate-sankey-visible"),
             dcc.Store(id="subject-sankey-visible"),
             dcc.Store(id="category-pair-summary-visible"),
+            dcc.Download(id="schema-diff-download"),
             html.Section(
                 className="intro-card",
                 children=[
@@ -716,6 +721,34 @@ def register_callbacks(
         if parsed is None:
             return _empty_state()
         return _overview(parsed)
+
+    @app.callback(
+        Output("schema-diff-download", "data"),
+        Input("download-schema-diff", "n_clicks"),
+        State("loaded-graph-state", "data"),
+        State("comparison-baseline-selector", "value"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_schema_diff(
+        n_clicks: int | None,
+        graph_states: list[GraphState] | GraphState | None,
+        baseline_cache_key: str | None,
+        session_id: str | None,
+    ) -> dict[str, str]:
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            return _schema_diff_download_data(
+                cache,
+                kgx_client,
+                url_client,
+                session_id,
+                _normalize_graph_states(graph_states),
+                baseline_cache_key,
+            )
+        except ValueError:
+            raise PreventUpdate from None
 
     @app.callback(
         Output("provenance-panel", "children"),
@@ -1797,6 +1830,56 @@ def _comparison_dashboard(
     graph_states: list[GraphState],
     baseline_cache_key: str | None = None,
 ) -> html.Div:
+    parsed_graphs, labels, load_errors = _comparison_inputs(
+        cache,
+        kgx_client,
+        url_client,
+        session_id,
+        graph_states,
+        baseline_cache_key,
+    )
+    return comparison_dashboard(parsed_graphs, labels, load_errors)
+
+
+def _schema_diff_download_data(
+    cache: MetadataCache,
+    kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
+    session_id: str | None,
+    graph_states: list[GraphState],
+    baseline_cache_key: str | None = None,
+) -> dict[str, str]:
+    parsed_graphs, labels, load_errors = _comparison_inputs(
+        cache,
+        kgx_client,
+        url_client,
+        session_id,
+        graph_states,
+        baseline_cache_key,
+    )
+    if load_errors or len(parsed_graphs) < 2:
+        msg = "; ".join(load_errors) or "At least two graphs are required for schema diff export."
+        raise ValueError(msg)
+    result = compare(parsed_graphs, labels=labels)
+    payload = schema_diff_download_payload(result)
+    if not any(item.get("schema_diff") is not None for item in payload["comparisons"]):
+        msg = "No ORION schema diff is available for the selected comparison."
+        raise ValueError(msg)
+    return {
+        "content": json.dumps(payload, indent=2, sort_keys=True),
+        "filename": _schema_diff_download_filename(result.baseline.label),
+        "type": "application/json",
+    }
+
+
+def _comparison_inputs(
+    cache: MetadataCache,
+    kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
+    session_id: str | None,
+    graph_states: list[GraphState],
+    baseline_cache_key: str | None = None,
+) -> tuple[list[ParsedGraphMetadata], list[str], list[str]]:
     graph_states = _order_graph_states_for_baseline(graph_states, baseline_cache_key)
     parsed_graphs: list[ParsedGraphMetadata] = []
     labels: list[str] = []
@@ -1813,8 +1896,12 @@ def _comparison_dashboard(
             load_errors.append(f"{label}: schema could not be loaded ({error}).")
         parsed_graphs.append(parsed)
         labels.append(label)
+    return parsed_graphs, labels, load_errors
 
-    return comparison_dashboard(parsed_graphs, labels, load_errors)
+
+def _schema_diff_download_filename(baseline_label: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", baseline_label.strip()).strip("-").lower()
+    return f"schema-diff-{slug or 'comparison'}.json"
 
 
 def _order_graph_states_for_baseline(

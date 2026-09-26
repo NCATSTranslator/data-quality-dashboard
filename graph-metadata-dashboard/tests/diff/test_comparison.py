@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from graph_metadata_dashboard.diff import compare
+from graph_metadata_dashboard.diff import compare, schema_diff_download_payload
 from graph_metadata_dashboard.diff import comparison as comparison_module
 from graph_metadata_dashboard.parsers.models import (
     GraphSchema,
@@ -466,6 +466,43 @@ def test_schema_diff_calls_orion_with_graph_metadata_documents(monkeypatch) -> N
     assert captured["new"]["@id"] == "https://metadata.example/graphs/target"
     assert schema.edge_source_changes[0].label == "infores:a"
     assert schema.edge_source_changes[0].count.percent_change == 50
+
+
+def test_schema_diff_download_payload_preserves_orion_raw_diff(monkeypatch) -> None:
+    raw_diff = {
+        "old": {"schema": {"@id": "old-schema"}},
+        "new": {"schema": {"@id": "new-schema"}},
+        "diff": {
+            "nodes": [],
+            "nodes_summary": {},
+            "edges": [],
+            "edges_summary": {
+                "total_count": {
+                    "old": 10,
+                    "new": 15,
+                    "delta": 5,
+                    "percent_change": 50,
+                }
+            },
+        },
+    }
+
+    def fake_diff_schemas(_old: dict[str, object], _new: dict[str, object]) -> dict:
+        return raw_diff
+
+    monkeypatch.setattr(comparison_module, "_orion_diff_schemas", lambda: fake_diff_schemas)
+    baseline = replace(_parsed_graph(name="Baseline"), schema=_schema_empty())
+    target = replace(_parsed_graph(name="Target"), schema=_schema_empty())
+
+    payload = schema_diff_download_payload(compare([baseline, target]))
+
+    assert "baseline" not in payload
+    assert payload["comparisons"][0]["baseline"]["label"] == "Baseline"
+    assert payload["comparisons"][0]["comparison"]["label"] == "Target"
+    assert payload["comparisons"][0]["schema_diff"] == raw_diff
+    assert "schema_diff_available" not in payload["comparisons"][0]
+    assert "message" not in payload["comparisons"][0]
+    assert "schema_diff_source" not in payload["comparisons"][0]
 
 
 def test_schema_percent_change_preserves_orion_value(monkeypatch) -> None:

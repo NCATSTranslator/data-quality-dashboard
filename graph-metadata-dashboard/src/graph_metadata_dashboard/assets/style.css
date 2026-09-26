@@ -447,6 +447,11 @@ body {
     var(--card);
 }
 
+.comparison-download-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .baseline-selector {
   width: min(24rem, 100%);
 }

@@ -47,6 +47,11 @@ calls ORION only at this one schema-diff boundary, and returns typed dashboard-o
 objects / simple structured dicts for Dash callbacks to render. No Dash/Flask imports in this
 module — it must be callable both from a Dash callback and, later, from an automated QC script.
 
+If users need a downloadable schema diff, export the raw `diff_schemas()` output already attached
+to each `SchemaDiffSummary`, wrapped only with per-comparison baseline/target graph metadata to
+identify each comparison. Do not reconstruct the ORION diff from dashboard tables, and do not place
+the raw diff payload in `dcc.Store`; build the download from server-side cached metadata on demand.
+
 ## N-way (2+ graphs) strategy
 
 For two selected graphs, compare graph A to graph B directly. **For three or more**, use a simple,

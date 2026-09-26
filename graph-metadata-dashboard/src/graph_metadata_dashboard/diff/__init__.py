@@ -15,6 +15,7 @@ from graph_metadata_dashboard.diff.comparison import (
     SubgraphFieldDifference,
     TypeCountChange,
     compare,
+    schema_diff_download_payload,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "SubgraphFieldDifference",
     "TypeCountChange",
     "compare",
+    "schema_diff_download_payload",
 ]

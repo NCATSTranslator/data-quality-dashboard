@@ -64,15 +64,37 @@ def comparison_dashboard(
         )
 
     result = compare(parsed_graphs, labels=labels)
+    has_schema_diff = any(pair.schema.raw is not None for pair in result.comparisons)
     return html.Div(
         className="content-card comparison-dashboard",
         children=[
-            html.P("Graph Comparison", className="eyebrow"),
-            html.P(
-                f"Using {result.baseline.label} as the baseline and comparing each "
-                "other loaded graph against it. Change the baseline from the "
-                "dropdown box above if needed.",
-                className="status-line",
+            html.Div(
+                className="section-heading-row comparison-dashboard-heading",
+                children=[
+                    html.Div(
+                        children=[
+                            html.P("Graph Comparison", className="eyebrow"),
+                            html.P(
+                                f"Using {result.baseline.label} as the baseline and comparing "
+                                "each other loaded graph against it. Change the baseline from "
+                                "the dropdown box above if needed.",
+                                className="status-line",
+                            ),
+                        ]
+                    ),
+                    html.Button(
+                        "Download",
+                        id="download-schema-diff",
+                        n_clicks=0,
+                        type="button",
+                        title="Selected graph schema difference will be downloaded as JSON.",
+                        disabled=not has_schema_diff,
+                        className=(
+                            "button button-quiet reset-selection-button "
+                            "comparison-download-button"
+                        ),
+                    ),
+                ],
             ),
             _message_list(load_errors),
             _n_way_overview(result.comparisons),

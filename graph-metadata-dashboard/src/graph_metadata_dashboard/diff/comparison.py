@@ -175,6 +175,20 @@ class ComparisonResult:
     comparisons: tuple[GraphComparison, ...]
 
 
+def schema_diff_download_payload(result: ComparisonResult) -> JsonObject:
+    """Build a JSON-serializable export of ORION schema diffs for all comparisons."""
+    return {
+        "comparisons": [
+            {
+                "baseline": _summary_export(pair.baseline),
+                "comparison": _summary_export(pair.target),
+                "schema_diff": pair.schema.raw,
+            }
+            for pair in result.comparisons
+        ],
+    }
+
+
 def compare(
     graphs: Sequence[ParsedGraphMetadata],
     *,
@@ -208,6 +222,21 @@ def compare(
         graphs=summaries,
         comparisons=comparisons,
     )
+
+
+def _summary_export(summary: GraphSummary) -> JsonObject:
+    return {
+        "label": summary.label,
+        "name": summary.name,
+        "release_version": summary.release_version,
+        "date_created": summary.date_created,
+        "date_modified": summary.date_modified,
+        "node_count": summary.node_count,
+        "edge_count": summary.edge_count,
+        "source_count": summary.source_count,
+        "subgraph_count": summary.subgraph_count,
+        "schema_status": summary.schema_status,
+    }
 
 
 def _compare_pair(
