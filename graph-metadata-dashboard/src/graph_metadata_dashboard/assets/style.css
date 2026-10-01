@@ -452,6 +452,14 @@ body {
   white-space: nowrap;
 }
 
+.comparison-download-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 .baseline-selector {
   width: min(24rem, 100%);
 }
@@ -1244,6 +1252,11 @@ body {
   .section-heading-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .comparison-download-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .sankey-control-block {

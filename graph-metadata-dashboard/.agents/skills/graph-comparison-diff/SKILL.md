@@ -51,6 +51,9 @@ If users need a downloadable schema diff, export the raw `diff_schemas()` output
 to each `SchemaDiffSummary`, wrapped only with per-comparison baseline/target graph metadata to
 identify each comparison. Do not reconstruct the ORION diff from dashboard tables, and do not place
 the raw diff payload in `dcc.Store`; build the download from server-side cached metadata on demand.
+If users need a readable comparison report, prefer a self-contained static HTML file generated from
+the existing `ComparisonResult` over PDF/headless-browser rendering. Keep it dependency-free and
+non-interactive: a shareable snapshot of the overview, heatmap, and schema summary tables.
 
 ## N-way (2+ graphs) strategy
 

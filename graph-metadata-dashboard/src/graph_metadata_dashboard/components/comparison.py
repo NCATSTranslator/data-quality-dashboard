@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_lib
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from dataclasses import dataclass
 from dash import dash_table, html
 
 from graph_metadata_dashboard.diff import (
+    ComparisonResult,
     CountDelta,
     EdgeSchemaChange,
     GraphComparison,
@@ -77,22 +79,43 @@ def comparison_dashboard(
                             html.P(
                                 f"Using {result.baseline.label} as the baseline and comparing "
                                 "each other loaded graph against it. Change the baseline from "
-                                "the dropdown box above if needed.",
+                                "the dropdown above, or download JSON data and an HTML report "
+                                "if needed.",
                                 className="status-line",
                             ),
                         ]
                     ),
-                    html.Button(
-                        "Download",
-                        id="download-schema-diff",
-                        n_clicks=0,
-                        type="button",
-                        title="Selected graph schema difference will be downloaded as JSON.",
-                        disabled=not has_schema_diff,
-                        className=(
-                            "button button-quiet reset-selection-button "
-                            "comparison-download-button"
-                        ),
+                    html.Div(
+                        className="comparison-download-actions",
+                        children=[
+                            html.Button(
+                                "Download JSON",
+                                id="download-schema-diff",
+                                n_clicks=0,
+                                type="button",
+                                title=(
+                                    "Selected graph schema difference will be downloaded as JSON."
+                                ),
+                                disabled=not has_schema_diff,
+                                className=(
+                                    "button button-quiet reset-selection-button "
+                                    "comparison-download-button schema-diff-download-button"
+                                ),
+                            ),
+                            html.Button(
+                                "Download report",
+                                id="download-comparison-report",
+                                n_clicks=0,
+                                type="button",
+                                title=(
+                                    "Download a static HTML report for this graph comparison."
+                                ),
+                                className=(
+                                    "button button-quiet reset-selection-button "
+                                    "comparison-download-button comparison-report-download-button"
+                                ),
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -109,6 +132,392 @@ def comparison_dashboard(
             ],
         ],
     )
+
+
+def comparison_html_report(result: ComparisonResult) -> str:
+    """Render a static, self-contained HTML comparison report."""
+    comparisons = result.comparisons
+    baseline = result.baseline
+    title = "Graph Metadata Comparison Report"
+    sections = [
+        f"<h1>{_report_escape(title)}</h1>",
+        (
+            "<p class=\"lead\">"
+            f"Using {_report_escape(baseline.label)} as the baseline and comparing each "
+            "other selected graph against it.</p>"
+        ),
+        _report_overview_table(comparisons),
+        _report_heatmap_table(comparisons),
+    ]
+    for pair in comparisons:
+        sections.append(_report_pair_schema_sections(pair))
+    return "\n".join(
+        [
+            "<!doctype html>",
+            "<html lang=\"en\">",
+            "<head>",
+            "<meta charset=\"utf-8\">",
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+            f"<title>{_report_escape(title)}</title>",
+            f"<style>{_report_css()}</style>",
+            "</head>",
+            "<body>",
+            "<main>",
+            *sections,
+            "</main>",
+            "</body>",
+            "</html>",
+        ]
+    )
+
+
+def _report_overview_table(comparisons: tuple[GraphComparison, ...]) -> str:
+    if not comparisons:
+        return ""
+    baseline = comparisons[0].baseline
+    rows = [
+        [
+            baseline.label,
+            baseline.release_version or "Unknown",
+            _format_count(baseline.node_count),
+            _format_count(baseline.edge_count),
+            _format_count(baseline.source_count),
+            _format_count(baseline.subgraph_count),
+            _report_schema_type_text(comparisons[0].schema, baseline=True),
+        ]
+    ]
+    for pair in comparisons:
+        rows.append(
+            [
+                pair.target.label,
+                pair.target.release_version or "Unknown",
+                _report_metric_text(pair.target.node_count, pair.total_nodes),
+                _report_metric_text(pair.target.edge_count, pair.total_edges),
+                f"{_format_count(pair.target.source_count)}; "
+                f"{len(pair.source_changes):,} changed",
+                f"{_format_count(pair.target.subgraph_count)}; "
+                f"{len(pair.subgraph_changes):,} changed",
+                _report_schema_type_text(pair.schema),
+            ]
+        )
+    return (
+        "<section><h2>Comparison Overview</h2>"
+        + _report_table(
+            (
+                "Graph",
+                "Release",
+                "Nodes",
+                "Edges",
+                "Sources",
+                "Subgraphs",
+                "Types",
+            ),
+            rows,
+        )
+        + "</section>"
+    )
+
+
+def _report_heatmap_table(comparisons: tuple[GraphComparison, ...]) -> str:
+    rows = _heatmap_rows(comparisons)
+    if not rows:
+        return ""
+    scale = _heatmap_scale(rows)
+    table_rows = []
+    for row in rows:
+        table_rows.append(
+            [
+                row.group,
+                row.label,
+                *[_report_heatmap_cell(cell, scale=scale) for cell in row.cells],
+            ]
+        )
+    headers = (
+        "Type",
+        "Attribute",
+        *[
+            f"{_graph_title(pair.baseline)} -> {_graph_title(pair.target)}"
+            for pair in comparisons
+        ],
+    )
+    return (
+        "<section><h2>Top Change Heatmap</h2>"
+        "<p>Largest cross-cutting changes across graph totals, source metadata, "
+        "node categories, edge triples, and schema rollups.</p>"
+        + _report_table(headers, table_rows)
+        + "</section>"
+    )
+
+
+def _report_pair_schema_sections(pair: GraphComparison) -> str:
+    title = (
+        f"Schema-Level Differences: {_graph_title(pair.baseline)} -> "
+        f"{_graph_title(pair.target)}"
+    )
+    if not pair.schema.available:
+        return (
+            f"<section><h2>{_report_escape(title)}</h2>"
+            f"<p>{_report_escape(pair.schema.message)}</p></section>"
+        )
+    return "".join(
+        [
+            f"<section><h2>{_report_escape(title)}</h2>",
+            _report_schema_summary_table(pair.schema),
+            _report_node_changes_table(pair.schema.node_changes),
+            _report_edge_changes_table(pair.schema.edge_changes),
+            "</section>",
+        ]
+    )
+
+
+def _report_schema_summary_table(schema: SchemaDiffSummary) -> str:
+    rows = [
+        ("Node type", _report_type_count_detail(schema.node_type_count)),
+        ("Edge type", _report_type_count_detail(schema.edge_type_count)),
+        ("Node ID prefixes", _report_map_text(schema.node_id_prefix_changes)),
+        ("Node attributes", _report_map_text(schema.node_attribute_changes)),
+        ("Edge predicates", _report_map_text(schema.edge_predicate_changes)),
+        ("Edge primary sources", _report_map_text(schema.edge_source_changes)),
+        (
+            "Edge source-predicate composition",
+            _report_map_text(schema.edge_source_predicate_changes),
+        ),
+        ("Edge qualifiers", _report_map_text(schema.edge_qualifier_changes)),
+        ("Edge attributes", _report_map_text(schema.edge_attribute_changes)),
+    ]
+    rows = [(label, value) for label, value in rows if value != "No changes"]
+    if not rows:
+        return "<h3>Overall Node and Edge Composition Summary Changes</h3><p>No changes.</p>"
+    return (
+        "<h3>Overall Node and Edge Composition Summary Changes</h3>"
+        + _report_table(("Category", "Changes"), rows)
+    )
+
+
+def _report_node_changes_table(changes: tuple[NodeSchemaChange, ...]) -> str:
+    if not changes:
+        return "<h3>Node Category Changes</h3><p>No node category changes.</p>"
+    return (
+        "<h3>Node Category Changes</h3>"
+        + _report_table(
+            ("Node category", "Status", "Node count", "ID prefixes", "Attributes"),
+            [
+                (
+                    change.label,
+                    change.status,
+                    _report_count_text(change.count, status=change.status),
+                    _report_map_text(change.id_prefix_changes),
+                    _report_map_text(change.attribute_changes),
+                )
+                for change in changes
+            ],
+        )
+    )
+
+
+def _report_edge_changes_table(changes: tuple[EdgeSchemaChange, ...]) -> str:
+    if not changes:
+        return "<h3>Edge Triple Changes</h3><p>No edge triple changes.</p>"
+    return (
+        "<h3>Edge Triple Changes</h3>"
+        + _report_table(
+            (
+                "Edge triple",
+                "Status",
+                "Edge count",
+                "Primary sources",
+                "Qualifiers",
+                "Attributes",
+                "Subject prefixes",
+                "Object prefixes",
+            ),
+            [
+                (
+                    _edge_schema_change_label(change),
+                    change.status,
+                    _report_count_text(change.count, status=change.status),
+                    _report_map_text(change.primary_source_changes),
+                    _report_map_text(change.qualifier_changes),
+                    _report_map_text(change.attribute_changes),
+                    _report_map_text(change.subject_id_prefix_changes),
+                    _report_map_text(change.object_id_prefix_changes),
+                )
+                for change in changes
+            ],
+        )
+    )
+
+
+def _report_table(headers: tuple[str, ...], rows: Iterable[Iterable[object]]) -> str:
+    header_html = "".join(f"<th>{_report_escape(header)}</th>" for header in headers)
+    row_html = []
+    for row in rows:
+        row_html.append(
+            "<tr>"
+            + "".join(f"<td>{_report_cell(value)}</td>" for value in row)
+            + "</tr>"
+        )
+    return (
+        "<div class=\"table-wrap\"><table><thead><tr>"
+        f"{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table></div>"
+    )
+
+
+def _report_cell(value: object) -> str:
+    if isinstance(value, _ReportHtml):
+        return value.value
+    return _report_escape(value)
+
+
+@dataclass(frozen=True)
+class _ReportHtml:
+    value: str
+
+
+def _report_metric_text(value: int | None, delta: CountDelta) -> str:
+    return f"{_format_count(value)}; {_format_delta(delta)}"
+
+
+def _report_schema_type_text(schema: SchemaDiffSummary, *, baseline: bool = False) -> str:
+    if not schema.available:
+        return "Unavailable"
+    if baseline:
+        values = [
+            _report_type_baseline_text("Nodes", schema.node_type_count),
+            _report_type_baseline_text("Edges", schema.edge_type_count),
+        ]
+    else:
+        values = [
+            _report_type_delta_text("Nodes", schema.node_type_count),
+            _report_type_delta_text("Edges", schema.edge_type_count),
+        ]
+    return "\n".join(value for value in values if value) or "Unavailable"
+
+
+def _report_type_baseline_text(label: str, type_count: dict[str, int] | None) -> str:
+    if not type_count or type_count.get("old") is None:
+        return ""
+    return f"{label}: {_format_count(type_count.get('old'))}"
+
+
+def _report_type_delta_text(label: str, type_count: dict[str, int] | None) -> str:
+    delta = _type_count_delta(type_count)
+    if delta is None:
+        return ""
+    return f"{label}: {_format_count(delta.new)} ({_format_delta(delta)})"
+
+
+def _report_type_count_detail(type_count: dict[str, int] | None) -> str:
+    if not type_count:
+        return "No changes"
+    parts = []
+    for key in ("old", "new", "added", "removed", "changed", "unchanged"):
+        value = type_count.get(key)
+        if value:
+            parts.append(f"{key.replace('_', ' ').title()}: {_format_count(value)}")
+    return "\n".join(parts) if parts else "No changes"
+
+
+def _report_heatmap_cell(cell: _HeatmapCell | None, *, scale: _HeatmapScale) -> _ReportHtml:
+    if cell is None:
+        return _ReportHtml("")
+    percent = _heatmap_cell_percent_text(cell)
+    status = "" if cell.status == "changed" else f" {cell.status}"
+    text = _report_escape(
+        " ".join(
+            item
+            for item in (_heatmap_cell_value(cell), percent, status.strip())
+            if item
+        )
+    )
+    ratio = _heatmap_cell_visual_ratio(cell, scale=scale)
+    style = f"background: {_heatmap_fill_color(ratio)};" if ratio > 0 else ""
+    direction = _heatmap_cell_direction(cell)
+    border = {
+        "positive": "border-left-color: #2563eb;",
+        "negative": "border-left-color: #dc2626;",
+    }.get(direction, "border-left-color: transparent;")
+    return _ReportHtml(f"<span class=\"heatmap-cell\" style=\"{style}{border}\">{text}</span>")
+
+
+def _report_count_text(delta: CountDelta, *, status: str) -> str:
+    return (
+        f"{_format_schema_delta(delta, status=status)}; "
+        f"{_format_count(delta.old)} -> {_format_count(delta.new)}"
+    )
+
+
+def _report_map_text(changes: tuple[MapEntryChange, ...]) -> str:
+    if not changes:
+        return "No changes"
+    groups = []
+    for status, grouped_changes in _group_map_changes(changes):
+        items = "; ".join(
+            f"{change.label}: {_format_schema_delta(change.count, status=change.status)}"
+            for change in grouped_changes
+        )
+        groups.append(f"{len(grouped_changes):,} {status}: {items}")
+    return "\n".join(groups)
+
+
+def _report_escape(value: object) -> str:
+    return html_lib.escape(str(value), quote=True).replace("\n", "<br>")
+
+
+def _report_css() -> str:
+    return """
+body {
+  margin: 0;
+  background: #f6f1e8;
+  color: #172026;
+  font-family: Georgia, "Times New Roman", serif;
+}
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px;
+}
+h1, h2, h3 {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  letter-spacing: -0.03em;
+}
+section {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid #d8cdb9;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.lead {
+  color: #475569;
+  font-size: 1.05rem;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.88rem;
+}
+th, td {
+  border: 1px solid #d8cdb9;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #e6f1ed;
+}
+.heatmap-cell {
+  display: inline-block;
+  min-width: 90px;
+  padding: 4px 8px;
+  border-left: 5px solid transparent;
+  border-radius: 8px;
+}
+""".strip()
 
 
 def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:

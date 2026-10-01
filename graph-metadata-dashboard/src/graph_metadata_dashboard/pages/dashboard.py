@@ -22,7 +22,10 @@ from dash import (
 from dash.exceptions import PreventUpdate
 
 from graph_metadata_dashboard.cache import MetadataCache
-from graph_metadata_dashboard.components.comparison import comparison_dashboard
+from graph_metadata_dashboard.components.comparison import (
+    comparison_dashboard,
+    comparison_html_report,
+)
 from graph_metadata_dashboard.components.single_graph import (
     provenance_contribution,
     upload_selection_status,
@@ -71,6 +74,7 @@ def layout() -> html.Div:
             dcc.Store(id="subject-sankey-visible"),
             dcc.Store(id="category-pair-summary-visible"),
             dcc.Download(id="schema-diff-download"),
+            dcc.Download(id="comparison-report-download"),
             html.Section(
                 className="intro-card",
                 children=[
@@ -748,6 +752,34 @@ def register_callbacks(
         except ValueError:
             raise PreventUpdate from None
 
+    @app.callback(
+        Output("comparison-report-download", "data"),
+        Input("download-comparison-report", "n_clicks"),
+        State("loaded-graph-state", "data"),
+        State("comparison-baseline-selector", "value"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def download_comparison_report(
+        n_clicks: int | None,
+        graph_states: list[GraphState] | GraphState | None,
+        baseline_cache_key: str | None,
+        session_id: str | None,
+    ) -> dict[str, str]:
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            return _comparison_report_download_data(
+                cache,
+                kgx_client,
+                url_client,
+                session_id,
+                _normalize_graph_states(graph_states),
+                baseline_cache_key,
+            )
+        except ValueError:
+            raise PreventUpdate from None
+        
     @app.callback(
         Output("provenance-panel", "children"),
         Input("loaded-graph-state", "data"),
@@ -1863,8 +1895,43 @@ def _schema_diff_download_data(
         raise ValueError(msg)
     return {
         "content": json.dumps(payload, indent=2, sort_keys=True),
-        "filename": _schema_diff_download_filename(result.baseline.label),
+        "filename": _download_filename(
+            result.baseline.label,
+            base_name_prefix="schema-diff",
+            extension="json",
+        ),
         "type": "application/json",
+    }
+
+
+def _comparison_report_download_data(
+    cache: MetadataCache,
+    kgx_client: KgxStorageClient,
+    url_client: UrlMetadataClient,
+    session_id: str | None,
+    graph_states: list[GraphState],
+    baseline_cache_key: str | None = None,
+) -> dict[str, str]:
+    parsed_graphs, labels, load_errors = _comparison_inputs(
+        cache,
+        kgx_client,
+        url_client,
+        session_id,
+        graph_states,
+        baseline_cache_key,
+    )
+    if load_errors or len(parsed_graphs) < 2:
+        msg = "; ".join(load_errors) or "At least two graphs are required for report export."
+        raise ValueError(msg)
+    result = compare(parsed_graphs, labels=labels)
+    return {
+        "content": comparison_html_report(result),
+        "filename": _download_filename(
+            result.baseline.label,
+            base_name_prefix="comparison-report",
+            extension="html",
+        ),
+        "type": "text/html",
     }
 
 
@@ -1895,9 +1962,9 @@ def _comparison_inputs(
     return parsed_graphs, labels, load_errors
 
 
-def _schema_diff_download_filename(baseline_label: str) -> str:
+def _download_filename(baseline_label: str, *, base_name_prefix: str, extension: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", baseline_label.strip()).strip("-").lower()
-    return f"schema-diff-{slug or 'comparison'}.json"
+    return f"{base_name_prefix}-{slug or 'comparison'}.{extension}"
 
 
 def _order_graph_states_for_baseline(

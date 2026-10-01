@@ -179,7 +179,7 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert len(_find_elements_by_class(dashboard, "comparison-glyph")) > 0
     assert len(_find_elements_by_class(dashboard, "overview-delta")) > 0
     assert len(_find_elements_by_class(dashboard, "source-change-action-row")) == 1
-    assert len(_find_elements_by_class(dashboard, "comparison-download-button")) == 1
+    assert len(_find_elements_by_class(dashboard, "comparison-download-button")) == 2
     assert len(_find_elements_by_class(dashboard, "comparison-pair-details")) == 2
     assert len(_find_elements_by_class(dashboard, "schema-table-panel")) > 0
     assert len(source_dialogs) == 1
@@ -569,7 +569,7 @@ def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
     )
 
     assert "Subgraph Source Changes" not in " ".join(_flatten_text(dashboard))
-    assert _find_elements_by_class(dashboard, "comparison-download-button")[0].disabled
+    assert _find_elements_by_class(dashboard, "schema-diff-download-button")[0].disabled
 
 
 def test_subgraph_changes_table_renders_metadata_differences() -> None:
@@ -667,10 +667,18 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert len(_find_elements_by_class(dashboard, "schema-summary-card-column")) > 0
     assert "Nodes:" in overview_text
     assert "Edges:" in overview_text
-    download_button = _find_elements_by_class(dashboard, "comparison-download-button")[0]
-    assert download_button.children == "Download"
-    assert not download_button.disabled
-
+    json_button = _find_elements_by_class(dashboard, "schema-diff-download-button")[0]
+    report_button = _find_elements_by_class(dashboard, "comparison-report-download-button")[0]
+    assert json_button.children == "Download JSON"
+    assert json_button.title == (
+        "Selected graph schema difference will be downloaded as JSON."
+    )
+    assert not json_button.disabled
+    assert report_button.children == "Download report"
+    assert report_button.title == (
+        "Download a static HTML report for this graph comparison."
+    )
+    
 
 def test_schema_diff_download_data_exports_orion_diff_json() -> None:
     create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
@@ -705,6 +713,44 @@ def test_schema_diff_download_data_exports_orion_diff_json() -> None:
     assert "diff" in payload["comparisons"][0]["schema_diff"]
     assert "nodes_summary" in payload["comparisons"][0]["schema_diff"]["diff"]
     
+
+def test_comparison_report_download_data_exports_static_html_report() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    cache = InMemoryMetadataCache()
+    session_id = "test-session"
+    first = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    second = parse_graph_metadata(
+        load_fixture("robokopkg.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json"),
+    )
+    cache.set(session_id, "first", first)
+    cache.set(session_id, "second", second)
+
+    data = page_module._comparison_report_download_data(
+        cache,
+        KgxStorageClient("https://kgx-storage.example/releases"),
+        UrlMetadataClient(("https://metadata.example",)),
+        session_id,
+        [
+            {"cache_key": "first", "kind": "upload", "label": "Translator KG Open"},
+            {"cache_key": "second", "kind": "upload", "label": "ROBOKOP"},
+        ],
+    )
+
+    assert data["filename"] == "comparison-report-translator-kg-open.html"
+    assert data["type"] == "text/html"
+    assert data["content"].startswith("<!doctype html>")
+    assert "Comparison Overview" in data["content"]
+    assert "Top Change Heatmap" in data["content"]
+    assert "Overall Node and Edge Composition Summary Changes" in data["content"]
+    assert "Node Category Changes" in data["content"]
+    assert "Edge Triple Changes" in data["content"]
+    assert "Schema-Level Differences:" in data["content"]
+    assert "Translator KG Open" in data["content"]
+    assert "ROBOKOP" in data["content"]
+
 
 def test_schema_difference_panels_hide_added_removed_percentages() -> None:
     added_count = CountDelta(old=0, new=5, delta=5, percent_change=100.0)
