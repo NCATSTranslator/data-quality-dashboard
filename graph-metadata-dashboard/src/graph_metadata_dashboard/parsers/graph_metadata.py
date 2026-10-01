@@ -41,10 +41,12 @@ def parse_graph_metadata(
         date_modified=str(raw.get("dateModified", "")),
         license=_string_or_empty(raw.get("license", None)),
         biolink_version=_call_or_default(
-            kgx_metadata, "get_biolink_version", raw.get("biolinkVersion", "")
+            kgx_metadata, "get_biolink_version", raw.get("biolinkVersion", "") 
+            or raw.get("translator:biolinkVersion", "")
         ),
         babel_version=_call_or_default(
-            kgx_metadata, "get_babel_version", raw.get("babelVersion", "")
+            kgx_metadata, "get_babel_version", raw.get("babelVersion", "") 
+            or raw.get("translator:babelVersion", "")
         ),
         source_ids=tuple(_safe_iter_strings(_call_or_default(kgx_metadata, "get_source_ids", []))),
         knowledge_sources=tuple(

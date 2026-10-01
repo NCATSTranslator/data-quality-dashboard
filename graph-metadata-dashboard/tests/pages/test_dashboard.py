@@ -249,6 +249,91 @@ def test_loaded_graphs_summary_includes_baseline_selector() -> None:
     ]
 
 
+def test_initial_layout_includes_hidden_baseline_selector() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    layout = page_module.layout()
+    selectors = [
+        dropdown
+        for dropdown in _find_elements_by_type(layout, "Dropdown")
+        if dropdown.id == "comparison-baseline-selector"
+    ]
+
+    assert len(selectors) == 1
+    assert selectors[0].value is None
+    assert selectors[0].options == []
+    assert _find_elements_by_class(layout, "selection-summary")[0].style == {"display": "none"}
+
+
+def test_overview_follows_selection_and_reset_without_missing_inputs() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    session_id = "overview-selection-session"
+    graph_states = []
+    parsed_graphs = []
+    for graph_id in ("alliance", "translator_kg_open", "robokopkg"):
+        parsed = parse_graph_metadata(load_fixture(f"{graph_id}.graph-metadata.json"))
+        cache.set(session_id, graph_id, parsed)
+        parsed_graphs.append(parsed)
+        graph_states.append({"cache_key": graph_id, "kind": "upload", "label": parsed.name})
+    page_module.register_callbacks(
+        app,
+        cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    render_summary = app.callback_map["loaded-graphs-panel.children"]["callback"].__wrapped__
+    overview_callback = app.callback_map["overview-panel.children"]
+    render_overview = overview_callback["callback"].__wrapped__
+
+    selections = [
+        None,
+        [graph_states[0]],
+        [],
+        graph_states[:2],
+        [],
+        [graph_states[0]],
+        [],
+        [graph_states[1]],
+        [graph_states[2]],
+        [],
+    ]
+    for selection in selections:
+        summary = render_summary(selection)
+        dropdowns = _find_elements_by_type(summary, "Dropdown")
+        assert len(dropdowns) == 1
+        selector = dropdowns[0]
+        assert {"id": selector.id, "property": "value"} in overview_callback["inputs"]
+        assert summary.style == ({} if selection else {"display": "none"})
+        selector_container = _find_elements_by_class(summary, "baseline-selector")[0]
+        comparison_mode = bool(selection and len(selection) > 1)
+        assert selector_container.style == ({} if comparison_mode else {"display": "none"})
+        assert selector.options == page_module._baseline_selector_options(selection or [])
+        assert selector.value == (selection[0]["cache_key"] if selection else None)
+
+        overview = render_overview(selection, selector.value, session_id)
+        text = " ".join(_flatten_text(overview))
+        if not selection:
+            assert "No graph loaded" in text
+            assert not _find_elements_by_class(overview, "overview-card")
+            assert not _find_elements_by_class(overview, "comparison-dashboard")
+        elif comparison_mode:
+            assert "Comparison Overview" in text
+            changed_baseline = render_overview(selection, selection[1]["cache_key"], session_id)
+            assert f"Using {selection[1]['label']} as the baseline" in " ".join(
+                _flatten_text(changed_baseline)
+            )
+        else:
+            assert _find_elements_by_class(overview, "overview-card")
+            headings = _find_elements_by_type(overview, "H2")
+            assert headings[0].children[0] == selection[0]["label"]
+            for parsed in parsed_graphs:
+                if parsed.name != selection[0]["label"]:
+                    assert parsed.name not in text
+
+
 def test_loaded_selection_locks_kgx_and_upload_but_allows_url_append() -> None:
     create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
     page_module = _registered_page_module("dashboard")

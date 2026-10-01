@@ -214,7 +214,7 @@ def layout() -> html.Div:
             html.Div(
                 className="results-region",
                 children=[
-                    html.Div(id="loaded-graphs-panel"),
+                    html.Div(id="loaded-graphs-panel", children=_loaded_graphs_summary([])),
                     html.Div(id="overview-panel"),
                     html.Div(id="provenance-panel"),
                     html.Div(id="node-categories-panel"),
@@ -691,8 +691,6 @@ def register_callbacks(
         graph_states: list[GraphState] | GraphState | None,
     ) -> Any:
         states = _normalize_graph_states(graph_states)
-        if not states:
-            return ""
         return _loaded_graphs_summary(states)
 
     @app.callback(
@@ -1724,24 +1722,22 @@ def _qualifier_context_summary(
 
 
 def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:
-    baseline_selector = (
-        html.Div(
-            className="baseline-selector",
-            children=[
-                html.Label("Comparison baseline", htmlFor="comparison-baseline-selector"),
-                dcc.Dropdown(
-                    id="comparison-baseline-selector",
-                    options=_baseline_selector_options(graph_states),
-                    value=graph_states[0]["cache_key"],
-                    clearable=False,
-                ),
-            ],
-        )
-        if len(graph_states) > 1
-        else ""
+    baseline_selector = html.Div(
+        className="baseline-selector",
+        style={} if len(graph_states) > 1 else {"display": "none"},
+        children=[
+            html.Label("Comparison baseline", htmlFor="comparison-baseline-selector"),
+            dcc.Dropdown(
+                id="comparison-baseline-selector",
+                options=_baseline_selector_options(graph_states),
+                value=graph_states[0]["cache_key"] if graph_states else None,
+                clearable=False,
+            ),
+        ],
     )
     return html.Div(
         className="content-card selection-summary",
+        style={} if graph_states else {"display": "none"},
         children=[
             html.Div(
                 className="section-heading-row",
