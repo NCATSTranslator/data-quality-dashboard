@@ -601,8 +601,8 @@ def register_callbacks(
         Output("schema-url", "value"),
         Input("load-selected-metadata", "n_clicks"),
         Input("reset-selection", "n_clicks"),
-        Input("kgx-release-dropdown", "value"),
-        Input("graph-metadata-url", "value"),
+        State("kgx-release-dropdown", "value"),
+        State("graph-metadata-url", "value"),
         State("upload-graph-metadata", "contents"),
         State("upload-graph-metadata", "filename"),
         State("upload-schema", "contents"),
@@ -641,15 +641,6 @@ def register_callbacks(
                 graph_url="",
                 schema_url="",
             )
-        if trigger == "kgx-release-dropdown":
-            return _load_graph_result(
-                graph_state=_normalize_graph_states(graph_states)
-            )
-        if trigger == "graph-metadata-url":
-            return _load_graph_result(
-                graph_state=_normalize_graph_states(graph_states)
-            )
-
         if trigger != "load-selected-metadata":
             return _load_graph_result(status="")
 
