@@ -34,8 +34,9 @@ resources:
 ingress:
   enabled: true
   annotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0,::/0"
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     cert-manager.io/cluster-issuer: letsencrypt
   hosts:
     - host: kg-dashboard.apps.renci.org
