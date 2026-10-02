@@ -219,7 +219,25 @@ def layout() -> html.Div:
                 className="results-region",
                 children=[
                     html.Div(id="loaded-graphs-panel", children=_loaded_graphs_summary([])),
-                    html.Div(id="overview-panel"),
+                    dcc.Loading(
+                        id="graph-loading",
+                        delay_show=1000,
+                        show_initially=False,
+                        target_components={
+                            "overview-panel": "children",
+                        },
+                        custom_spinner=html.Div(
+                            className="content-card",
+                            role="status",
+                            style={"width": "100%", "alignSelf": "flex-start"},
+                            children=[
+                                html.H3("Loading graph metadata…"),
+                            ],
+                        ),
+                        children=[
+                            html.Div(id="overview-panel"),
+                        ],
+                    ),
                     html.Div(id="provenance-panel"),
                     html.Div(id="node-categories-panel"),
                     html.Div(

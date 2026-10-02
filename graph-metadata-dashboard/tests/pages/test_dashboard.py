@@ -266,6 +266,35 @@ def test_initial_layout_includes_hidden_baseline_selector() -> None:
     assert _find_elements_by_class(layout, "selection-summary")[0].style == {"display": "none"}
 
 
+def test_loading_indicator_only_covers_overview_rendering_after_one_second() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+
+    layout = page_module.layout()
+    indicators = _find_elements_by_type(layout, "Loading")
+
+    assert len(indicators) == 1
+    indicator = indicators[0]
+    assert indicator.delay_show == 1000
+    assert indicator.show_initially is False
+    assert indicator.target_components == {
+        "overview-panel": "children",
+    }
+    assert {child.id for child in indicator.children} == set(indicator.target_components)
+    assert not _find_elements_by_type(indicator, "Store")
+    results_region = _find_elements_by_class(layout, "results-region")[0]
+    assert results_region.children[0].id == "loaded-graphs-panel"
+    assert results_region.children[1] is indicator
+    stores = _find_elements_by_type(layout, "Store")
+    graph_stores = [store for store in stores if store.id == "loaded-graph-state"]
+    assert len(graph_stores) == 1
+    assert graph_stores[0].storage_type == "session"
+    assert indicator.custom_spinner.role == "status"
+    assert indicator.custom_spinner.style["alignSelf"] == "flex-start"
+    assert "Loading graph metadata" in " ".join(_flatten_text(indicator.custom_spinner))
+    assert "No graph loaded" not in " ".join(_flatten_text(indicator.custom_spinner))
+
+
 def test_overview_follows_selection_and_reset_without_missing_inputs() -> None:
     app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
     page_module = _registered_page_module("dashboard")
