@@ -169,7 +169,11 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     )
     text = " ".join(_flatten_text(dashboard))
     overview_table = _find_elements_by_class(dashboard, "comparison-overview-table")[0]
-    source_dialogs = _find_elements_by_type(dashboard, "Dialog")
+    source_dialogs = [
+        dialog
+        for dialog in _find_elements_by_type(dashboard, "Dialog")
+        if dialog.id.startswith("source-changes-dialog-")
+    ]
 
     assert "Comparison Overview" in text
     assert "Types" in text
@@ -178,9 +182,10 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert "Translator KG Open" in text
     assert len(_find_elements_by_class(dashboard, "comparison-glyph")) > 0
     assert len(_find_elements_by_class(dashboard, "overview-delta")) > 0
-    assert len(_find_elements_by_class(dashboard, "source-change-action-row")) == 1
+    assert len(_find_elements_by_class(dashboard, "metadata-change-action-row")) == 1
     assert len(_find_elements_by_class(dashboard, "comparison-download-button")) == 2
     assert len(_find_elements_by_class(dashboard, "comparison-pair-details")) == 2
+    assert not _find_elements_by_class(overview_table, "comparison-glyph")
     assert len(_find_elements_by_class(dashboard, "schema-table-panel")) > 0
     assert len(source_dialogs) == 1
     source_tables = _find_datatables(source_dialogs[0])
@@ -598,7 +603,70 @@ def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
     )
 
     assert "Subgraph Source Changes" not in " ".join(_flatten_text(dashboard))
+    assert "Schema-Level Differences:" not in " ".join(_flatten_text(dashboard))
+    assert not _find_elements_by_type(dashboard, "Dialog")
+    subgraph_cell = _find_elements_by_class(dashboard, "subgraph-overview-cell")[0]
+    assert "No changes" in _flatten_text(subgraph_cell)
+    assert not _find_elements_by_type(subgraph_cell, "Button")
     assert _find_elements_by_class(dashboard, "schema-diff-download-button")[0].disabled
+
+
+def test_subgraph_changes_use_overview_dialogs_for_each_comparison() -> None:
+    graphs = [
+        replace(
+            parse_graph_metadata(load_fixture(f"{name}.graph-metadata.json")),
+            schema=None,
+        )
+        for name in ("robokopkg", "alliance", "translator_kg_open")
+    ]
+    labels = ["ROBOKOP", "Alliance", "Translator KG Open"]
+    result = comparison_components.compare(graphs, labels=labels)
+    dashboard = comparison_components.comparison_dashboard(graphs, labels, [])
+    overview = _find_elements_by_class(dashboard, "comparison-overview-table")[0]
+    cells = _find_elements_by_class(overview, "subgraph-overview-cell")
+    all_dialogs = _find_elements_by_type(dashboard, "Dialog")
+
+    assert len(cells) == 2
+    assert len({dialog.id for dialog in all_dialogs}) == len(all_dialogs)
+    assert not _find_elements_by_class(overview, "comparison-glyph")
+    assert not _find_elements_by_class(dashboard, "comparison-pair-card")
+    assert "Schema-Level Differences:" not in " ".join(_flatten_text(dashboard))
+    for index, (cell, pair) in enumerate(zip(cells, result.comparisons, strict=True), start=1):
+        dialog = _find_elements_by_type(cell, "Dialog")[0]
+        buttons = _find_elements_by_type(cell, "Button")
+        table = _find_datatables(dialog)[0]
+
+        assert dialog.id == f"subgraph-changes-dialog-{index}"
+        assert buttons[0].children == "Show changes"
+        assert getattr(buttons[0], "data-dialog-target") == dialog.id
+        assert buttons[1].children == "Close"
+        assert getattr(buttons[1], "data-dialog-close") == dialog.id
+        assert f"{len(pair.subgraph_changes):,} changed" in _flatten_text(cell)
+        assert f"Changed Subgraphs: ROBOKOP -> {pair.target.label}" in _flatten_text(dialog)
+        assert len(table.data) == len(pair.subgraph_changes)
+        assert {row["id"] for row in table.data} == {
+            change.source_id for change in pair.subgraph_changes
+        }
+        assert {"name": "ROBOKOP Metadata", "id": "old_values"} in table.columns
+        assert {"name": f"{pair.target.label} Metadata", "id": "new_values"} in table.columns
+        assert table.page_size == 10
+        assert table.filter_action == "native"
+        assert pair.schema.message in _flatten_text(dashboard)
+
+
+def test_subgraph_changes_table_paginates_all_large_graph_changes() -> None:
+    baseline = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    target = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    pair = comparison_components.compare([baseline, target]).comparisons[0]
+    table = _find_datatables(
+        comparison_components._subgraph_changes_table(pair.subgraph_changes)
+    )[0]
+
+    assert len(pair.subgraph_changes) > 25
+    assert len(table.data) == len(pair.subgraph_changes)
+    assert table.page_size == 10
+    assert table.sort_action == "native"
+    assert table.filter_action == "native"
 
 
 def test_subgraph_changes_table_renders_metadata_differences() -> None:
@@ -670,6 +738,12 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     text = " ".join(_flatten_text(dashboard))
     overview_table = _find_elements_by_class(dashboard, "comparison-overview-table")[0]
     overview_text = " ".join(_flatten_text(overview_table))
+    schema_sections = _find_elements_by_class(dashboard, "comparison-pair-card")
+
+    assert schema_sections
+    assert "Schema-Level Differences:" in " ".join(_flatten_text(schema_sections[0]))
+    assert "Subgraph Source Changes" not in " ".join(_flatten_text(schema_sections[0]))
+    assert _find_elements_by_class(schema_sections[0], "schema-diff-section")
 
     assert "Node Category Changes" in text
     assert "ID prefixes" in text

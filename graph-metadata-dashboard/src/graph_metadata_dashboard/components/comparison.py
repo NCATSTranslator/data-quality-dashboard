@@ -547,8 +547,6 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
             ]
         ),
     ]
-    max_subgraph_changes = max((len(pair.subgraph_changes) for pair in comparisons), default=0)
-
     for index, pair in enumerate(comparisons, start=1):
         rows.append(
             html.Tr(
@@ -574,11 +572,7 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
                         )
                     ),
                     html.Td(
-                        _change_count_cell(
-                            _format_count(pair.target.subgraph_count),
-                            len(pair.subgraph_changes),
-                            max_count=max_subgraph_changes,
-                        )
+                        _subgraph_change_cell(pair, index=index)
                     ),
                     html.Td(
                         _schema_type_overview_cell(
@@ -1186,14 +1180,13 @@ def _comparison_pair_section(
     collapsed: bool,
     open_by_default: bool,
 ) -> html.Div:
+    if not pair.schema.available:
+        return _schema_diff_section(pair)
     title = (
         f"Schema-Level Differences: {_graph_title(pair.baseline)} "
         f"-> {_graph_title(pair.target)}"
     )
-    contents = []
-    if pair.subgraph_changes:
-        contents.append(_subgraph_changes_table(pair.subgraph_changes))
-    contents.append(_schema_diff_section(pair))
+    contents = [_schema_diff_section(pair)]
     if collapsed:
         return html.Details(
             className="comparison-pair-card comparison-pair-details",
@@ -1254,9 +1247,14 @@ def _source_changes_table(
     )
 
 
-def _subgraph_changes_table(changes: tuple[SubgraphChange, ...]) -> html.Div:
-    displayed_changes = changes[:25]
-    show_changed_fields = any(change.status == "changed" for change in displayed_changes)
+def _subgraph_changes_table(
+    changes: tuple[SubgraphChange, ...],
+    *,
+    heading_level: int = 4,
+    baseline_label: str = "Baseline",
+    comparison_label: str = "Comparison",
+) -> html.Div:
+    show_changed_fields = any(change.status == "changed" for change in changes)
     rows = [
         {
             "status": change.status,
@@ -1270,14 +1268,14 @@ def _subgraph_changes_table(changes: tuple[SubgraphChange, ...]) -> html.Div:
             "old_values": change.old_values,
             "new_values": change.new_values,
         }
-        for change in displayed_changes
+        for change in changes
     ]
     columns = [
         {"name": "Status", "id": "status"},
         {"name": "ID", "id": "id"},
         {"name": "Name", "id": "name"},
-        {"name": "Baseline Metadata", "id": "old_values"},
-        {"name": "Comparison Metadata", "id": "new_values"},
+        {"name": f"{baseline_label} Metadata", "id": "old_values"},
+        {"name": f"{comparison_label} Metadata", "id": "new_values"},
     ]
     if show_changed_fields:
         columns.insert(3, {"name": "Changed Fields", "id": "changed_fields"})
@@ -1286,6 +1284,9 @@ def _subgraph_changes_table(changes: tuple[SubgraphChange, ...]) -> html.Div:
         rows,
         columns=columns,
         empty_message="No subgraph additions, removals, or metadata changes found.",
+        heading_level=heading_level,
+        sortable=True,
+        filterable=True,
         style_data_conditional=[
             {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"},
             {"if": {"column_id": "new_values"}, "whiteSpace": "pre-line"},
@@ -1718,27 +1719,6 @@ def _metric_delta_cell(
     )
 
 
-def _change_count_cell(
-    value: str,
-    change_count: int,
-    *,
-    max_count: int,
-) -> html.Div:
-    children: list[object] = [
-        html.Strong(value),
-        html.Span(
-            f"{change_count:,} changed" if change_count else "No changes",
-            className="comparison-overview-note",
-        ),
-    ]
-    if change_count:
-        children.insert(1, _delta_bar(change_count, max_value=max_count, neutral=True))
-    return html.Div(
-        className="comparison-overview-cell",
-        children=children,
-    )
-
-
 def _baseline_schema_type_overview_cell(
     comparisons: tuple[GraphComparison, ...],
 ) -> html.Div:
@@ -1869,14 +1849,67 @@ def _source_change_cell(
     index: int,
 ) -> html.Div:
     change_count = len(pair.source_changes)
+    return _metadata_change_cell(
+        value=_format_count(pair.target.source_count),
+        change_count=change_count,
+        dialog_id=f"source-changes-dialog-{index}",
+        title=f"Changed Sources: {pair.baseline.label} -> {pair.target.label}",
+        description=(
+            f"{change_count:,} underlying data source records changed in {pair.target.label} "
+            f"relative to {pair.baseline.label} baseline."
+        ),
+        table=_source_changes_table(
+            pair.source_changes,
+            heading_level=5,
+            baseline_label=pair.baseline.label,
+            comparison_label=pair.target.label,
+        ),
+        cell_class="source-overview-cell",
+    )
+
+
+def _subgraph_change_cell(
+    pair: GraphComparison,
+    *,
+    index: int,
+) -> html.Div:
+    change_count = len(pair.subgraph_changes)
+    return _metadata_change_cell(
+        value=_format_count(pair.target.subgraph_count),
+        change_count=change_count,
+        dialog_id=f"subgraph-changes-dialog-{index}",
+        title=f"Changed Subgraphs: {pair.baseline.label} -> {pair.target.label}",
+        description=(
+            f"{change_count:,} subgraph records added, removed, or modified in "
+            f"{pair.target.label} relative to {pair.baseline.label} baseline."
+        ),
+        table=_subgraph_changes_table(
+            pair.subgraph_changes,
+            heading_level=5,
+            baseline_label=pair.baseline.label,
+            comparison_label=pair.target.label,
+        ),
+        cell_class="subgraph-overview-cell",
+    )
+
+
+def _metadata_change_cell(
+    *,
+    value: str,
+    change_count: int,
+    dialog_id: str,
+    title: str,
+    description: str,
+    table: html.Div,
+    cell_class: str,
+) -> html.Div:
     children: list[object] = [
-        html.Strong(_format_count(pair.target.source_count)),
+        html.Strong(value),
     ]
     if change_count:
-        dialog_id = f"source-changes-dialog-{index}"
         children.append(
             html.Div(
-                className="source-change-action-row",
+                className="metadata-change-action-row",
                 children=[
                     html.Span(
                         f"{change_count:,} changed",
@@ -1904,14 +1937,9 @@ def _source_change_cell(
                                 children=[
                                     html.Div(
                                         children=[
-                                            html.H4(
-                                                f"Changed Sources: "
-                                                f"{pair.baseline.label} -> {pair.target.label}"
-                                            ),
+                                            html.H4(title),
                                             html.P(
-                                                f"{change_count:,} underlying data source "
-                                                f"records changed in {pair.target.label} " 
-                                                f"relative to {pair.baseline.label} baseline.",
+                                                description,
                                                 className="status-line",
                                             ),
                                         ]
@@ -1924,12 +1952,7 @@ def _source_change_cell(
                                     ),
                                 ],
                             ),
-                            _source_changes_table(
-                                pair.source_changes,
-                                heading_level=5,
-                                baseline_label=pair.baseline.label,
-                                comparison_label=pair.target.label,
-                            ),
+                            table,
                         ],
                     )
                 ],
@@ -1942,7 +1965,7 @@ def _source_change_cell(
                 className="comparison-overview-note",
             )
         )
-    return html.Div(className="comparison-overview-cell source-overview-cell", children=children)
+    return html.Div(className=f"comparison-overview-cell {cell_class}", children=children)
 
 
 def _metadata_release_cell(pair: GraphComparison) -> html.Div:

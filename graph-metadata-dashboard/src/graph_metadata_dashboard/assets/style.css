@@ -773,7 +773,7 @@ body {
   line-height: 1;
 }
 
-.source-change-action-row {
+.metadata-change-action-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
