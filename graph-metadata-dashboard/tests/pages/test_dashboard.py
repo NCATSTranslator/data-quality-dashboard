@@ -650,7 +650,7 @@ def test_subgraph_changes_use_overview_dialogs_for_each_comparison() -> None:
         assert {"name": "ROBOKOP Metadata", "id": "old_values"} in table.columns
         assert {"name": f"{pair.target.label} Metadata", "id": "new_values"} in table.columns
         assert table.page_size == 10
-        assert table.filter_action == "native"
+        assert table.filter_action == "none"
         assert pair.schema.message in _flatten_text(dashboard)
 
 
@@ -666,7 +666,7 @@ def test_subgraph_changes_table_paginates_all_large_graph_changes() -> None:
     assert len(table.data) == len(pair.subgraph_changes)
     assert table.page_size == 10
     assert table.sort_action == "native"
-    assert table.filter_action == "native"
+    assert table.filter_action == "none"
 
 
 def test_subgraph_changes_table_renders_metadata_differences() -> None:

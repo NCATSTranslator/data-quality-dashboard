@@ -96,6 +96,7 @@ class ParsedGraphMetadata:
     schema: GraphSchema | None
     schema_version_marker: str
     raw: JsonObject
+    build_version: str = ""
 
     @property
     def total_node_count(self) -> int | None:

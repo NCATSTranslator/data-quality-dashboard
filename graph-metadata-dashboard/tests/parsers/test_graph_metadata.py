@@ -1,7 +1,55 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
+import pytest
+
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
 from tests.conftest import load_fixture
+
+
+@pytest.mark.parametrize("prefix", ["", "orion:", "translator:"])
+def test_parse_metadata_namespace_variants(prefix: str) -> None:
+    data = load_fixture("robokopkg.graph-metadata.json")
+    expected_biolink_version = data.pop("biolinkVersion")
+    expected_babel_version = data.pop("babelVersion")
+    data[f"{prefix}biolinkVersion"] = expected_biolink_version
+    data[f"{prefix}babelVersion"] = expected_babel_version
+    data[f"{prefix}buildVersion"] = "graph-build"
+    subgraph = data["hasPart"][0]
+    subgraph.pop("orion:nodeCount")
+    subgraph.pop("orion:edgeCount")
+    subgraph[f"{prefix}nodeCount"] = 0
+    subgraph[f"{prefix}edgeCount"] = "0"
+    subgraph[f"{prefix}buildVersion"] = "subgraph-build"
+    original = deepcopy(data)
+
+    parsed = parse_graph_metadata(data)
+
+    assert parsed.build_version == "graph-build"
+    assert parsed.biolink_version == expected_biolink_version
+    assert parsed.babel_version == expected_babel_version
+    assert parsed.schema_version_marker == expected_biolink_version
+    assert parsed.subgraphs[0].build_version == "subgraph-build"
+    assert parsed.subgraphs[0].node_count == 0
+    assert parsed.subgraphs[0].edge_count == 0
+    assert parsed.raw == original
+    assert data == original
+
+
+def test_translator_fields_take_precedence_over_legacy_aliases() -> None:
+    data = load_fixture("robokopkg.graph-metadata.json")
+    data["translator:biolinkVersion"] = "new-translator"
+    data["biolinkVersion"] = "old-unprefixed"
+    data["orion:biolinkVersion"] = "old-orion"
+    data["hasPart"][0]["orion:nodeCount"] = 999
+    data["hasPart"][0]["translator:nodeCount"] = 0
+
+    parsed = parse_graph_metadata(data)
+
+    assert parsed.biolink_version == "new-translator"
+    assert parsed.schema_version_marker == "new-translator"
+    assert parsed.subgraphs[0].node_count == 0
 
 
 def test_parse_small_single_source_fixture() -> None:

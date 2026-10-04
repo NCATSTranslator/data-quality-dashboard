@@ -1286,7 +1286,6 @@ def _subgraph_changes_table(
         empty_message="No subgraph additions, removals, or metadata changes found.",
         heading_level=heading_level,
         sortable=True,
-        filterable=True,
         style_data_conditional=[
             {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"},
             {"if": {"column_id": "new_values"}, "whiteSpace": "pre-line"},

@@ -25,7 +25,8 @@ def parse_graph_metadata(
 ) -> ParsedGraphMetadata:
     raw = dict(data)
     KGXGraphMetadata, _ = _orion_metadata_classes()
-    kgx_metadata = KGXGraphMetadata.from_dict(raw)
+    kgx_metadata = KGXGraphMetadata.from_dict(_orion_metadata_fields(raw))
+    biolink_version = _call_or_default(kgx_metadata, "get_biolink_version", "")
     schema_reference = detect_schema_reference(raw)
     inline_schema = raw.get("schema") if schema_reference.kind == "inline" else None
     candidate_schema = schema_data or inline_schema
@@ -40,14 +41,8 @@ def parse_graph_metadata(
         date_created=str(raw.get("dateCreated", "")),
         date_modified=str(raw.get("dateModified", "")),
         license=_string_or_empty(raw.get("license", None)),
-        biolink_version=_call_or_default(
-            kgx_metadata, "get_biolink_version", raw.get("biolinkVersion", "") 
-            or raw.get("translator:biolinkVersion", "")
-        ),
-        babel_version=_call_or_default(
-            kgx_metadata, "get_babel_version", raw.get("babelVersion", "") 
-            or raw.get("translator:babelVersion", "")
-        ),
+        biolink_version=biolink_version,
+        babel_version=_call_or_default(kgx_metadata, "get_babel_version", ""),
         source_ids=tuple(_safe_iter_strings(_call_or_default(kgx_metadata, "get_source_ids", []))),
         knowledge_sources=tuple(
             _parse_knowledge_source(entry) for entry in _list(raw.get("isBasedOn"))
@@ -55,9 +50,21 @@ def parse_graph_metadata(
         subgraphs=tuple(_parse_subgraph(entry) for entry in _list(raw.get("hasPart"))),
         schema_reference=schema_reference,
         schema=schema,
-        schema_version_marker=_string_or_empty(raw.get("biolinkVersion", None)),
+        schema_version_marker=biolink_version,
         raw=raw,
+        build_version=_call_or_default(kgx_metadata, "get_build_version", ""),
     )
+
+
+def _orion_metadata_fields(data: Mapping[str, Any]) -> JsonObject:
+    normalized = dict(data)
+    for field in ("buildVersion", "biolinkVersion", "babelVersion", "nodeCount", "edgeCount"):
+        for prefix in ("translator:", "orion:", ""):
+            value = data.get(f"{prefix}{field}")
+            if value is not None and value != "":
+                normalized[f"orion:{field}"] = value
+                break
+    return normalized
 
 
 def detect_schema_reference(data: Mapping[str, Any]) -> SchemaReference:
@@ -102,8 +109,7 @@ def _parse_knowledge_source(entry: Mapping[str, Any]) -> KnowledgeSource:
     citation = entry.get("citation")
     citations = [str(item) for item in citation] if isinstance(citation, list) else []
     return KnowledgeSource(
-        id=_string_or_empty(entry.get("id", None) or entry.get("@id", None) 
-                            or entry.get("identifier", None)),
+        id=_string_or_empty(entry.get("id") or entry.get("@id") or entry.get("identifier")),
         name=_string_or_empty(entry.get("name", None)),
         description=_string_or_empty(entry.get("description", None)),
         license=_string_or_empty(entry.get("license", None)),
@@ -115,7 +121,7 @@ def _parse_knowledge_source(entry: Mapping[str, Any]) -> KnowledgeSource:
 
 def _parse_subgraph(entry: Mapping[str, Any]) -> SubgraphSource:
     _, KGXKnowledgeGraphSource = _orion_metadata_classes()
-    kgx_source = KGXKnowledgeGraphSource.from_dict(dict(entry))
+    kgx_source = KGXKnowledgeGraphSource.from_dict(_orion_metadata_fields(entry))
     return SubgraphSource(
         id=_first_string(kgx_source, entry, "id", "@id", "identifier"),
         name=_first_string(kgx_source, entry, "name"),
@@ -123,19 +129,23 @@ def _parse_subgraph(entry: Mapping[str, Any]) -> SubgraphSource:
             kgx_source,
             entry,
             "node_count",
+            "translator:nodeCount",
             "orion:nodeCount",
             "nodeCount",
+            "node_count",
             "nodes",
         ),
         edge_count=_subgraph_count(
             kgx_source,
             entry,
             "edge_count",
+            "translator:edgeCount",
             "orion:edgeCount",
             "edgeCount",
+            "edge_count",
             "edges",
         ),
-        release_version=_first_string(kgx_source, entry, "release_version"),
+        release_version=_first_string(kgx_source, entry, "release_version", "version"),
         build_version=_first_string(kgx_source, entry, "build_version"),
     )
 

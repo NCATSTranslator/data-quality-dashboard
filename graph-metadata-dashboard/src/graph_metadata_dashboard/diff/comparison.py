@@ -41,6 +41,7 @@ class GraphSummary:
     source_count: int
     subgraph_count: int
     schema_status: str
+    build_version: str = ""
 
 
 @dataclass(frozen=True)
@@ -277,6 +278,7 @@ def _graph_summary(graph: ParsedGraphMetadata, label: str) -> GraphSummary:
         label=label,
         name=graph.name,
         release_version=graph.release_version,
+        build_version=graph.build_version,
         date_created=graph.date_created,
         date_modified=graph.date_modified,
         license=graph.license,
@@ -297,6 +299,7 @@ def _field_differences(
     fields = (
         ("Graph name", "name"),
         ("Release version", "release_version"),
+        ("Build version", "build_version"),
         ("Date created", "date_created"),
         ("Date modified", "date_modified"),
         ("License", "license"),
@@ -620,11 +623,13 @@ def _subgraph_change_values(
     summary_fields = (
         ("Release version", source.release_version),
         ("Build version", source.build_version),
+        ("Node count", source.node_count),
+        ("Edge count", source.edge_count),
     )
     values = [
         f"{label}: {_clip_source_value(str(value))}"
         for label, value in summary_fields
-        if str(value or "").strip()
+        if value is not None and str(value).strip()
     ]
     return "\n".join(values) if values else "No populated subgraph metadata fields"
 
