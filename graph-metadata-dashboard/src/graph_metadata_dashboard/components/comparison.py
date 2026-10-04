@@ -537,7 +537,19 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
         ),
         html.Tr(
             children=[
-                html.Td(comparisons[0].baseline.label),
+                html.Td(
+                    html.Div(
+                        className="comparison-overview-cell",
+                        children=[
+                            html.Span(comparisons[0].baseline.label),
+                            html.Strong(
+                                "(baseline)",
+                                className="comparison-overview-note",
+                                style={"color": "#000", "fontWeight": "700"},
+                            ),
+                        ],
+                    )
+                ),
                 html.Td(_baseline_cell(comparisons[0].baseline.release_version or "Unknown")),
                 html.Td(_baseline_cell(_format_count(comparisons[0].baseline.node_count))),
                 html.Td(_baseline_cell(_format_count(comparisons[0].baseline.edge_count))),
