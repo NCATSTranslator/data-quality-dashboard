@@ -17,7 +17,7 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.config import Settings
-from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SubgraphChange
+from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SourceChange, SubgraphChange
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
 from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
@@ -194,7 +194,7 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert "No changes" in _flatten_text(overview_table)
     assert source_tables
     source_column_names = [column["name"] for column in source_tables[0].columns]
-    assert "Status" not in source_column_names
+    assert source_column_names[0] == "Status"
     assert "Changed Fields" in source_column_names
     assert "Alliance Values" in source_column_names
     assert "Translator KG Open Values" in source_column_names
@@ -667,6 +667,64 @@ def test_subgraph_changes_table_paginates_all_large_graph_changes() -> None:
     assert table.page_size == 10
     assert table.sort_action == "native"
     assert table.filter_action == "none"
+
+
+def test_source_changes_table_hides_changed_fields_for_added_removed_only() -> None:
+    changes = tuple(
+        SourceChange(
+            source_id=f"infores:{status}",
+            name=status,
+            status=status,
+            changed_fields=(status.title(),),
+            old_values="Version: old" if status == "removed" else "None",
+            new_values="Version: new" if status == "added" else "None",
+            field_differences=(),
+        )
+        for status in ("added", "removed")
+    )
+    for selected_changes in ((changes[0],), (changes[1],), changes):
+        table = comparison_components._source_changes_table(selected_changes)
+        datatable = _find_datatables(table)[0]
+
+        assert datatable.columns[0] == {"name": "Status", "id": "status"}
+        assert {"name": "Changed Fields", "id": "changed_fields"} not in datatable.columns
+        assert [row["status"] for row in datatable.data] == [
+            change.status for change in selected_changes
+        ]
+        assert all("changed_fields" not in row for row in datatable.data)
+        assert datatable.page_size == 10
+
+
+def test_source_changes_table_shows_fields_only_for_modified_records() -> None:
+    changes = tuple(
+        SourceChange(
+            source_id=f"infores:{status}",
+            name=status,
+            status=status,
+            changed_fields=("Version", "License") if status == "changed" else (status.title(),),
+            old_values="Version: old" if status != "added" else "None",
+            new_values="Version: new" if status != "removed" else "None",
+            field_differences=(),
+        )
+        for status in ("removed", "changed", "added")
+    )
+    table = comparison_components._source_changes_table(
+        changes, baseline_label="Baseline KG", comparison_label="Target KG"
+    )
+    datatable = _find_datatables(table)[0]
+
+    assert datatable.columns == [
+        {"name": "Status", "id": "status"},
+        {"name": "ID", "id": "id"},
+        {"name": "Name", "id": "name"},
+        {"name": "Changed Fields", "id": "changed_fields"},
+        {"name": "Baseline KG Values", "id": "old_values"},
+        {"name": "Target KG Values", "id": "new_values"},
+    ]
+    assert [row["status"] for row in datatable.data] == ["removed", "changed", "added"]
+    assert [row["changed_fields"] for row in datatable.data] == ["", "Version, License", ""]
+    assert datatable.data[0]["new_values"] == "None"
+    assert datatable.data[2]["old_values"] == "None"
 
 
 def test_subgraph_changes_table_renders_metadata_differences() -> None:

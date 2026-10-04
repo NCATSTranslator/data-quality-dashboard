@@ -1218,26 +1218,39 @@ def _source_changes_table(
     baseline_label: str = "Baseline",
     comparison_label: str = "Comparison",
 ) -> html.Div:
+    show_changed_fields = any(change.status == "changed" for change in changes)
     rows = [
         {
+            "status": change.status,
             "id": change.source_id,
             "name": change.name,
-            "changed_fields": ", ".join(change.changed_fields),
+            **(
+                {
+                    "changed_fields": (
+                        ", ".join(change.changed_fields) if change.status == "changed" else ""
+                    )
+                }
+                if show_changed_fields
+                else {}
+            ),
             "old_values": change.old_values,
             "new_values": change.new_values,
         }
         for change in changes
     ]
+    columns = [
+        {"name": "Status", "id": "status"},
+        {"name": "ID", "id": "id"},
+        {"name": "Name", "id": "name"},
+        {"name": f"{baseline_label} Values", "id": "old_values"},
+        {"name": f"{comparison_label} Values", "id": "new_values"},
+    ]
+    if show_changed_fields:
+        columns.insert(3, {"name": "Changed Fields", "id": "changed_fields"})
     return _table_section(
         "Underlying Data Source Changes",
         rows,
-        columns=[
-            {"name": "ID", "id": "id"},
-            {"name": "Name", "id": "name"},
-            {"name": "Changed Fields", "id": "changed_fields"},
-            {"name": f"{baseline_label} Values", "id": "old_values"},
-            {"name": f"{comparison_label} Values", "id": "new_values"},
-        ],
+        columns=columns,
         empty_message="No source additions, removals, or source metadata changes found.",
         heading_level=heading_level,
         style_data_conditional=[
