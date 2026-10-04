@@ -577,6 +577,8 @@ def _subgraph_field_differences(
         ("Name", "name"),
         ("Release version", "release_version"),
         ("Build version", "build_version"),
+        ("Node count", "node_count"),
+        ("Edge count", "edge_count"),
     )
     differences = []
     for label, attribute in fields:
@@ -594,7 +596,10 @@ def _subgraph_field_differences(
 
 
 def _subgraph_field_value(source: SubgraphSource, attribute: str) -> str:
-    return " ".join(str(getattr(source, attribute) or "").split())
+    value = getattr(source, attribute)
+    if attribute in {"node_count", "edge_count"}:
+        return "Not provided" if value is None else str(value)
+    return " ".join(str(value or "").split())
 
 
 def _subgraph_changed_fields(
@@ -633,7 +638,10 @@ def _subgraph_change_values(
             for label, value in summary_fields
             if value is not None and str(value).strip()
         ]
+    displayed_fields = {difference.field for difference in field_differences}
     for label, attribute in (("Node count", "node_count"), ("Edge count", "edge_count")):
+        if label in displayed_fields:
+            continue
         count = getattr(source, attribute)
         other_count = getattr(other_source, attribute, None)
         if count is not None or other_count is not None:

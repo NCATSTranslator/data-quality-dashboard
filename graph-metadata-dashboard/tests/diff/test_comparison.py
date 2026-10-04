@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from graph_metadata_dashboard.diff import compare, schema_diff_download_payload
 from graph_metadata_dashboard.diff import comparison as comparison_module
 from graph_metadata_dashboard.parsers.models import (
@@ -99,16 +101,19 @@ def test_compare_detects_graph_source_and_subgraph_changes() -> None:
     assert "Version: v1" in added_change.new_values
     assert "License: MIT" in added_change.new_values
     assert [(change.source_id, change.status) for change in pair.subgraph_changes] == [
-        ("infores:subgraph-b", "added")
+        ("infores:subgraph-a", "changed"),
+        ("infores:subgraph-b", "added"),
     ]
+    assert pair.subgraph_changes[0].changed_fields == ("Node count",)
 
 
-def test_compare_hides_unchanged_subgraphs_with_missing_counts() -> None:
+@pytest.mark.parametrize("count", [None, 0, 10])
+def test_compare_hides_unchanged_subgraphs(count: int | None) -> None:
     subgraph = SubgraphSource(
         id="https://kgx-storage.example/releases/alliance/1.0.0/",
         name="alliance",
-        node_count=None,
-        edge_count=None,
+        node_count=count,
+        edge_count=count,
         release_version="1.0.0",
         build_version="alliance-build",
     )
@@ -118,6 +123,41 @@ def test_compare_hides_unchanged_subgraphs_with_missing_counts() -> None:
     pair = compare([baseline, target]).comparisons[0]
 
     assert pair.subgraph_changes == ()
+
+
+@pytest.mark.parametrize(
+    "old_count, new_count", [(None, 0), (0, None), (None, 10), (10, None), (10, 20)]
+)
+def test_compare_reports_subgraph_count_only_changes(
+    old_count: int | None, new_count: int | None,
+) -> None:
+    subgraph = SubgraphSource(
+        id="https://kgx-storage.example/releases/alliance/1.0.0/",
+        name="alliance",
+        node_count=old_count,
+        edge_count=old_count,
+    )
+    baseline = _parsed_graph(name="Baseline", subgraphs=(subgraph,))
+    target = _parsed_graph(
+        name="Target",
+        subgraphs=(replace(subgraph, node_count=new_count, edge_count=new_count),),
+    )
+
+    pair = compare([baseline, target]).comparisons[0]
+
+    assert len(pair.subgraph_changes) == 1
+    change = pair.subgraph_changes[0]
+    assert change.status == "changed"
+    assert change.changed_fields == ("Node count", "Edge count")
+    for label in change.changed_fields:
+        assert f"{label}: {old_count if old_count is not None else 'Not provided'}" in (
+            change.old_values
+        )
+        assert f"{label}: {new_count if new_count is not None else 'Not provided'}" in (
+            change.new_values
+        )
+        assert change.old_values.count(f"{label}:") == 1
+        assert change.new_values.count(f"{label}:") == 1
 
 
 def test_compare_reports_subgraph_metadata_changes() -> None:
@@ -156,7 +196,9 @@ def test_compare_reports_subgraph_metadata_changes() -> None:
     change = pair.subgraph_changes[0]
     assert change.status == "changed"
     assert change.source_id == "alliance"
-    assert change.changed_fields == ("ID", "Release version", "Build version")
+    assert change.changed_fields == (
+        "ID", "Release version", "Build version", "Node count", "Edge count",
+    )
     assert "Release version: 1.0.0" in change.old_values
     assert f"ID: {long_id}" in change.new_values
     assert f"Build version: {long_build}" in change.new_values

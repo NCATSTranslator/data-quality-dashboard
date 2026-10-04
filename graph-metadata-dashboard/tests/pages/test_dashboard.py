@@ -676,9 +676,15 @@ def test_subgraph_changes_table_renders_metadata_differences() -> None:
                 source_id="alliance",
                 name="alliance",
                 status="changed",
-                changed_fields=("Release version", "Build version"),
-                old_values="Release version: 1.0.0\nBuild version: old-build",
-                new_values="Release version: 1.0.1\nBuild version: new-build",
+                changed_fields=("Release version", "Build version", "Node count", "Edge count"),
+                old_values=(
+                    "Release version: 1.0.0\nBuild version: old-build\n"
+                    "Node count: 0\nEdge count: 123"
+                ),
+                new_values=(
+                    "Release version: 1.0.1\nBuild version: new-build\n"
+                    "Node count: Not provided\nEdge count: Not provided"
+                ),
             ),
         )
     )
@@ -687,7 +693,13 @@ def test_subgraph_changes_table_renders_metadata_differences() -> None:
 
     assert "Subgraph Source Changes" in text
     assert {"name": "Changed Fields", "id": "changed_fields"} in datatable.columns
-    assert datatable.data[0]["changed_fields"] == "Release version, Build version"
+    assert datatable.data[0]["changed_fields"] == (
+        "Release version, Build version, Node count, Edge count"
+    )
+    assert "Node count: 0" in datatable.data[0]["old_values"]
+    assert "Edge count: 123" in datatable.data[0]["old_values"]
+    assert "Node count: Not provided" in datatable.data[0]["new_values"]
+    assert "Edge count: Not provided" in datatable.data[0]["new_values"]
     assert "Release version: 1.0.0" in datatable.data[0]["old_values"]
     assert "Build version: new-build" in datatable.data[0]["new_values"]
     for column_id in ("old_values", "new_values"):
