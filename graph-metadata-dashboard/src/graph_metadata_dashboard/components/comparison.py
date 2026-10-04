@@ -1287,8 +1287,16 @@ def _subgraph_changes_table(
         heading_level=heading_level,
         sortable=True,
         style_data_conditional=[
-            {"if": {"column_id": "old_values"}, "whiteSpace": "pre-line"},
-            {"if": {"column_id": "new_values"}, "whiteSpace": "pre-line"},
+            {
+                "if": {"column_id": column_id},
+                "whiteSpace": "pre-line",
+                "overflowWrap": "anywhere",
+                "wordBreak": "break-word",
+                "minWidth": "16rem",
+                "maxWidth": "28rem",
+                "height": "auto",
+            }
+            for column_id in ("old_values", "new_values")
         ],
     )
 

@@ -690,6 +690,16 @@ def test_subgraph_changes_table_renders_metadata_differences() -> None:
     assert datatable.data[0]["changed_fields"] == "Release version, Build version"
     assert "Release version: 1.0.0" in datatable.data[0]["old_values"]
     assert "Build version: new-build" in datatable.data[0]["new_values"]
+    for column_id in ("old_values", "new_values"):
+        assert {
+            "if": {"column_id": column_id},
+            "whiteSpace": "pre-line",
+            "overflowWrap": "anywhere",
+            "wordBreak": "break-word",
+            "minWidth": "16rem",
+            "maxWidth": "28rem",
+            "height": "auto",
+        } in datatable.style_data_conditional
 
 
 def test_subgraph_changes_table_hides_changed_fields_for_added_removed_only() -> None:

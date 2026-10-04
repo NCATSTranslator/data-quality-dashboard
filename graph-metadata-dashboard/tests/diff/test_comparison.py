@@ -121,14 +121,16 @@ def test_compare_hides_unchanged_subgraphs_with_missing_counts() -> None:
 
 
 def test_compare_reports_subgraph_metadata_changes() -> None:
+    long_id = "https://kgx-storage.example/releases/alliance/" + "release" * 40 + "/"
+    long_build = "alliance-build-" * 30
     baseline = _parsed_graph(
         name="Baseline",
         subgraphs=(
             SubgraphSource(
                 id="https://kgx-storage.example/releases/alliance/1.0.0/",
                 name="alliance",
-                node_count=None,
-                edge_count=None,
+                node_count=0,
+                edge_count=123,
                 release_version="1.0.0",
                 build_version="old-build",
             ),
@@ -138,12 +140,12 @@ def test_compare_reports_subgraph_metadata_changes() -> None:
         name="Target",
         subgraphs=(
             SubgraphSource(
-                id="https://kgx-storage.example/releases/alliance/1.0.1/",
+                id=long_id,
                 name="alliance",
                 node_count=None,
                 edge_count=None,
                 release_version="1.0.1",
-                build_version="new-build",
+                build_version=long_build,
             ),
         ),
     )
@@ -156,7 +158,17 @@ def test_compare_reports_subgraph_metadata_changes() -> None:
     assert change.source_id == "alliance"
     assert change.changed_fields == ("ID", "Release version", "Build version")
     assert "Release version: 1.0.0" in change.old_values
-    assert "Build version: new-build" in change.new_values
+    assert f"ID: {long_id}" in change.new_values
+    assert f"Build version: {long_build}" in change.new_values
+    assert "Node count: 0" in change.old_values
+    assert "Edge count: 123" in change.old_values
+    assert "Node count: Not provided" in change.new_values
+    assert "Edge count: Not provided" in change.new_values
+
+    reverse_change = compare([target, baseline]).comparisons[0].subgraph_changes[0]
+
+    assert reverse_change.old_values == change.new_values
+    assert reverse_change.new_values == change.old_values
 
 
 def test_compare_explains_source_metadata_changes_beyond_version_license() -> None:

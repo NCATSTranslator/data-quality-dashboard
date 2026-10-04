@@ -522,11 +522,13 @@ def _subgraph_changes(
                     old_source,
                     field_differences,
                     side="old",
+                    other_source=new_source,
                 ),
                 new_values=_subgraph_change_values(
                     new_source,
                     field_differences,
                     side="new",
+                    other_source=old_source,
                 ),
                 field_differences=field_differences,
             )
@@ -584,8 +586,8 @@ def _subgraph_field_differences(
             differences.append(
                 SubgraphFieldDifference(
                     field=label,
-                    old=_clip_source_value(old_value),
-                    new=_clip_source_value(new_value),
+                    old=old_value or "None",
+                    new=new_value or "None",
                 )
             )
     return tuple(differences)
@@ -612,25 +614,30 @@ def _subgraph_change_values(
     field_differences: tuple[SubgraphFieldDifference, ...],
     *,
     side: str,
+    other_source: SubgraphSource | None = None,
 ) -> str:
     if source is None:
         return "None"
     if field_differences:
-        return "\n".join(
+        values = [
             f"{difference.field}: {difference.old if side == 'old' else difference.new}"
             for difference in field_differences
+        ]
+    else:
+        summary_fields = (
+            ("Release version", source.release_version),
+            ("Build version", source.build_version),
         )
-    summary_fields = (
-        ("Release version", source.release_version),
-        ("Build version", source.build_version),
-        ("Node count", source.node_count),
-        ("Edge count", source.edge_count),
-    )
-    values = [
-        f"{label}: {_clip_source_value(str(value))}"
-        for label, value in summary_fields
-        if value is not None and str(value).strip()
-    ]
+        values = [
+            f"{label}: {value}"
+            for label, value in summary_fields
+            if value is not None and str(value).strip()
+        ]
+    for label, attribute in (("Node count", "node_count"), ("Edge count", "edge_count")):
+        count = getattr(source, attribute)
+        other_count = getattr(other_source, attribute, None)
+        if count is not None or other_count is not None:
+            values.append(f"{label}: {count if count is not None else 'Not provided'}")
     return "\n".join(values) if values else "No populated subgraph metadata fields"
 
 
