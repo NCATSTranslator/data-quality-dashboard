@@ -5,7 +5,9 @@ import json
 from dataclasses import replace
 from importlib import import_module
 
+import pytest
 from dash import dcc, html, page_registry
+from dash.exceptions import PreventUpdate
 
 from graph_metadata_dashboard.app import create_app
 from graph_metadata_dashboard.cache.memory import InMemoryMetadataCache
@@ -227,7 +229,7 @@ def test_comparison_dashboard_uses_selected_baseline() -> None:
     )
     text = " ".join(_flatten_text(dashboard))
 
-    assert "Using Translator KG Open as the baseline" in text
+    assert "Use Translator KG Open as the baseline" in text
     assert "Translator KG Open -> Alliance" in text
 
 
@@ -356,7 +358,7 @@ def test_overview_follows_selection_and_reset_without_missing_inputs() -> None:
         elif comparison_mode:
             assert "Comparison Overview" in text
             changed_baseline = render_overview(selection, selection[1]["cache_key"], session_id)
-            assert f"Using {selection[1]['label']} as the baseline" in " ".join(
+            assert f"Use {selection[1]['label']} as the baseline" in " ".join(
                 _flatten_text(changed_baseline)
             )
         else:
@@ -842,6 +844,17 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert "Red stripe: decrease" in text
     assert len(_find_elements_by_class(dashboard, "comparison-heatmap-table")) == 1
     assert len(_find_elements_by_class(dashboard, "heatmap-legend")) == 1
+    legend = _find_elements_by_class(dashboard, "heatmap-legend")[0]
+    limit_input = _find_elements_by_type(legend, "Input")[0]
+    assert limit_input.id == "heatmap-row-limit"
+    assert limit_input.value == 20
+    assert limit_input.min == 1
+    assert limit_input.max == 100
+    assert limit_input.step == 1
+    assert limit_input.debounce is True
+    limit_control = _find_elements_by_class(legend, "heatmap-row-limit-control")[0]
+    hint = _find_elements_by_class(limit_control, "heatmap-row-limit-hint")[0]
+    assert hint.children == "Press Enter or click outside to apply."
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text
@@ -988,6 +1001,43 @@ def test_schema_difference_panels_hide_added_removed_percentages() -> None:
         changed_group,
         "schema-map-delta",
     )[0].title
+
+
+def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    session_id = "heatmap-row-limit-session"
+    states = []
+    for graph_id in ("alliance", "translator_kg_open", "robokopkg"):
+        graph = parse_graph_metadata(
+            load_fixture(f"{graph_id}.graph-metadata.json"),
+            schema_data=load_fixture("robokopkg.schema.json") if graph_id == "robokopkg" else None,
+        )
+        cache.set(session_id, graph_id, graph)
+        states.append({"cache_key": graph_id, "kind": "upload", "label": graph_id})
+    page_module.register_callbacks(
+        app,
+        cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    callback = app.callback_map["comparison-heatmap-content.children"]
+    update_heatmap = callback["callback"].__wrapped__
+
+    assert callback["inputs"] == [{"id": "heatmap-row-limit", "property": "value"}]
+    for row_limit, expected_rows in ((5, 5), (35, 35), (None, 20)):
+        table = update_heatmap(row_limit, states, "translator_kg_open", session_id)
+        assert len(_find_elements_by_type(table, "Tbody")[0].children) == expected_rows
+        assert "translator_kg_open" in _flatten_text(table.children[0])[2]
+        assert "alliance" in _flatten_text(table.children[0])[2]
+        assert not _find_elements_by_type(table, "Input")
+
+    for selected_states, selected_session in (
+        ([], session_id), (states[:1], session_id), (states, None)
+    ):
+        with pytest.raises(PreventUpdate):
+            update_heatmap(5, selected_states, None, selected_session)
 
 
 def test_heatmap_changed_cell_shows_percent_and_scales_by_shared_changes() -> None:
@@ -1173,6 +1223,23 @@ def test_heatmap_ranking_reserves_rows_for_each_comparison_column() -> None:
 
     assert len(ranked) == comparison_components.HEATMAP_ROW_LIMIT
     assert sum(1 for row in ranked if row.cells[1] is not None) == 5
+    for row_limit, expected_count in (
+        (2, 2), (7, 7), (30, 30), (None, 20), (0, 1), (float("nan"), 20), (1000, 30)
+    ):
+        limited = comparison_components._rank_heatmap_rows(
+            scored_rows, scale=scale, comparison_count=2, row_limit=row_limit
+        )
+        assert len(limited) == expected_count
+        if expected_count >= 2:
+            assert any(row.cells[0] is not None for row in limited)
+            assert any(row.cells[1] is not None for row in limited)
+    many_rows = tuple(
+        replace(row, key=f"{row.key}-{index}") for index in range(4) for row in scored_rows
+    )
+    bounded = comparison_components._rank_heatmap_rows(
+        many_rows, scale=scale, comparison_count=2, row_limit=1000
+    )
+    assert len(bounded) == comparison_components.HEATMAP_MAX_ROW_LIMIT
 
 
 def test_heatmap_ranking_uses_global_rows_first_for_multi_column_comparison() -> None:
@@ -1259,6 +1326,11 @@ def test_heatmap_ranking_uses_global_rows_first_for_multi_column_comparison() ->
     assert sum(1 for row in ranked if row.key.startswith("pair-specific")) < (
         comparison_components.HEATMAP_ROW_LIMIT
     )
+    limited = comparison_components._rank_heatmap_rows(
+        scored_rows, scale=scale, comparison_count=2, row_limit=2
+    )
+    assert len(limited) == 2
+    assert all(row.key.startswith("global") for row in limited)
 
 
 def _registered_page_module(module_basename: str) -> object:

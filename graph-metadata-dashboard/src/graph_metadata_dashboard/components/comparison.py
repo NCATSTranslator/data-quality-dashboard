@@ -5,7 +5,7 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from dash import dash_table, html
+from dash import dash_table, dcc, html
 
 from graph_metadata_dashboard.diff import (
     ComparisonResult,
@@ -23,6 +23,7 @@ from graph_metadata_dashboard.diff import (
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
 
 HEATMAP_ROW_LIMIT = 20
+HEATMAP_MAX_ROW_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ def comparison_dashboard(
                         children=[
                             html.P("Graph Comparison", className="eyebrow"),
                             html.P(
-                                f"Using {result.baseline.label} as the baseline and comparing "
+                                f"Use {result.baseline.label} as the baseline and compare "
                                 "each other loaded graph against it. Change the baseline from "
                                 "the dropdown above, or download JSON data and an HTML report "
                                 "if needed.",
@@ -143,7 +144,7 @@ def comparison_html_report(result: ComparisonResult) -> str:
         f"<h1>{_report_escape(title)}</h1>",
         (
             "<p class=\"lead\">"
-            f"Using {_report_escape(baseline.label)} as the baseline and comparing each "
+            f"Use {_report_escape(baseline.label)} as the baseline and compare each "
             "other selected graph against it.</p>"
         ),
         _report_overview_table(comparisons),
@@ -242,8 +243,8 @@ def _report_heatmap_table(comparisons: tuple[GraphComparison, ...]) -> str:
     )
     return (
         "<section><h2>Top Change Heatmap</h2>"
-        "<p>Largest cross-cutting changes across graph totals, source metadata, "
-        "node categories, edge triples, and schema rollups.</p>"
+        "<p>Show the largest changes across graph totals, source metadata, "
+        "node categories, edge triples, and overall schema.</p>"
         + _report_table(headers, table_rows)
         + "</section>"
     )
@@ -605,76 +606,69 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
 
 
 def _comparison_heatmap(comparisons: tuple[GraphComparison, ...]) -> html.Div | str:
-    rows = _heatmap_rows(comparisons)
-    if not rows:
+    table = comparison_heatmap_table(comparisons)
+    if not table:
         return ""
-    scale = _heatmap_scale(rows)
     return html.Div(
         className="comparison-section comparison-heatmap-section",
         children=[
             html.H4("Top Change Heatmap"),
             html.P(
-                "Largest cross-cutting changes across graph totals, source metadata, "
-                "node categories, edge triples, and schema rollups. Cell color uses one "
-                "sequential scale for normalized changes across all rows. Rows are capped "
-                f"at {HEATMAP_ROW_LIMIT}.",
+                "Show the largest changes across graph totals, source metadata, "
+                "node categories, edge triples, and overall schema. Cell color uses one "
+                "sequential scale for normalized changes across all rows. "
+                "Enter the number of changes to show in TOP ITEMS (20 by default).",
                 className="comparison-table-note",
             ),
             _heatmap_legend(),
             html.Div(
+                id="comparison-heatmap-content",
                 className="comparison-heatmap-wrap",
-                children=[
-                    html.Table(
-                        className="comparison-heatmap-table",
-                        children=[
-                            html.Thead(
-                                html.Tr(
-                                    [
-                                        html.Th("Type"),
-                                        html.Th("Attribute"),
-                                        *[
-                                            html.Th(
-                                                f"{_graph_title(pair.baseline)} -> "
-                                                f"{_graph_title(pair.target)}"
-                                            )
-                                            for pair in comparisons
-                                        ],
-                                    ]
-                                )
-                            ),
-                            html.Tbody(
-                                [
-                                    html.Tr(
-                                        [
-                                            html.Th(
-                                                row.group,
-                                                className="heatmap-row-group-cell",
-                                            ),
-                                            html.Th(
-                                                row.label,
-                                                className="heatmap-row-label-cell",
-                                            ),
-                                            *[
-                                                _heatmap_cell(
-                                                    cell,
-                                                    scale=scale,
-                                                )
-                                                for cell in row.cells
-                                            ],
-                                        ]
-                                    )
-                                    for row in rows
-                                ]
-                            ),
-                        ],
-                    )
-                ],
+                children=table,
             ),
         ],
     )
 
 
-def _heatmap_rows(comparisons: tuple[GraphComparison, ...]) -> tuple[_HeatmapRow, ...]:
+def comparison_heatmap_table(
+    comparisons: tuple[GraphComparison, ...],
+    *,
+    row_limit: int | float | None = HEATMAP_ROW_LIMIT,
+) -> html.Table | str:
+    rows = _heatmap_rows(comparisons, row_limit=row_limit)
+    if not rows:
+        return ""
+    scale = _heatmap_scale(rows)
+    return html.Table(
+        className="comparison-heatmap-table",
+        children=[
+            html.Thead(
+                html.Tr([
+                    html.Th("Type"),
+                    html.Th("Attribute"),
+                    *[
+                        html.Th(f"{_graph_title(pair.baseline)} -> {_graph_title(pair.target)}")
+                        for pair in comparisons
+                    ],
+                ])
+            ),
+            html.Tbody([
+                html.Tr([
+                    html.Th(row.group, className="heatmap-row-group-cell"),
+                    html.Th(row.label, className="heatmap-row-label-cell"),
+                    *[_heatmap_cell(cell, scale=scale) for cell in row.cells],
+                ])
+                for row in rows
+            ]),
+        ],
+    )
+
+
+def _heatmap_rows(
+    comparisons: tuple[GraphComparison, ...],
+    *,
+    row_limit: int | float | None = HEATMAP_ROW_LIMIT,
+) -> tuple[_HeatmapRow, ...]:
     drafts: dict[str, tuple[str, str, list[_HeatmapCell | None]]] = {}
     for index, pair in enumerate(comparisons):
         for key, group, label, cell in _heatmap_pair_cells(pair):
@@ -715,6 +709,7 @@ def _heatmap_rows(comparisons: tuple[GraphComparison, ...]) -> tuple[_HeatmapRow
         scored_rows,
         scale=scale,
         comparison_count=len(comparisons),
+        row_limit=row_limit,
     )
 
 
@@ -723,7 +718,11 @@ def _rank_heatmap_rows(
     *,
     scale: _HeatmapScale,
     comparison_count: int,
+    row_limit: int | float | None = HEATMAP_ROW_LIMIT,
 ) -> tuple[_HeatmapRow, ...]:
+    if not isinstance(row_limit, (int, float)) or not math.isfinite(row_limit):
+        row_limit = HEATMAP_ROW_LIMIT
+    row_limit = max(1, min(HEATMAP_MAX_ROW_LIMIT, int(row_limit)))
     if not rows:
         return ()
     if comparison_count > 1:
@@ -731,11 +730,13 @@ def _rank_heatmap_rows(
             rows,
             scale=scale,
             comparison_count=comparison_count,
+            row_limit=row_limit,
         )
     return _rank_heatmap_rows_pair_balanced(
         rows,
         scale=scale,
         comparison_count=comparison_count,
+        row_limit=row_limit,
     )
 
 
@@ -744,9 +745,10 @@ def _rank_heatmap_rows_pair_balanced(
     *,
     scale: _HeatmapScale,
     comparison_count: int,
+    row_limit: int = HEATMAP_ROW_LIMIT,
 ) -> tuple[_HeatmapRow, ...]:
     selected: dict[str, _HeatmapRow] = {}
-    per_comparison_quota = max(1, HEATMAP_ROW_LIMIT // max(1, comparison_count))
+    per_comparison_quota = max(1, row_limit // max(1, comparison_count))
     for index in range(comparison_count):
         candidates = sorted(
             (row for row in rows if index < len(row.cells) and row.cells[index] is not None),
@@ -760,10 +762,10 @@ def _rank_heatmap_rows_pair_balanced(
         for row in candidates[:per_comparison_quota]:
             selected[row.key] = row
     for row in _sort_heatmap_rows(rows):
-        if len(selected) >= HEATMAP_ROW_LIMIT:
+        if len(selected) >= row_limit:
             break
         selected.setdefault(row.key, row)
-    return _sort_heatmap_rows(tuple(selected.values()))[:HEATMAP_ROW_LIMIT]
+    return _sort_heatmap_rows(tuple(selected.values()))[:row_limit]
 
 
 def _rank_heatmap_rows_global_first(
@@ -771,15 +773,16 @@ def _rank_heatmap_rows_global_first(
     *,
     scale: _HeatmapScale,
     comparison_count: int,
+    row_limit: int = HEATMAP_ROW_LIMIT,
 ) -> tuple[_HeatmapRow, ...]:
     selected: dict[str, _HeatmapRow] = {}
     global_rows = tuple(row for row in rows if _heatmap_row_coverage(row) > 1)
     for row in sorted(global_rows, key=_heatmap_global_sort_key):
-        if len(selected) >= HEATMAP_ROW_LIMIT:
+        if len(selected) >= row_limit:
             break
         selected[row.key] = row
-    if len(selected) >= HEATMAP_ROW_LIMIT:
-        return tuple(selected.values())[:HEATMAP_ROW_LIMIT]
+    if len(selected) >= row_limit:
+        return tuple(selected.values())[:row_limit]
 
     per_column_candidates = [
         sorted(
@@ -800,7 +803,7 @@ def _rank_heatmap_rows_global_first(
         for index in range(comparison_count)
     ]
     positions = [0 for _ in range(comparison_count)]
-    while len(selected) < HEATMAP_ROW_LIMIT:
+    while len(selected) < row_limit:
         added = False
         for index, candidates in enumerate(per_column_candidates):
             while positions[index] < len(candidates):
@@ -811,11 +814,11 @@ def _rank_heatmap_rows_global_first(
                 selected[row.key] = row
                 added = True
                 break
-            if len(selected) >= HEATMAP_ROW_LIMIT:
+            if len(selected) >= row_limit:
                 break
         if not added:
             break
-    return tuple(selected.values())[:HEATMAP_ROW_LIMIT]
+    return tuple(selected.values())[:row_limit]
 
 
 def _sort_heatmap_rows(rows: tuple[_HeatmapRow, ...]) -> tuple[_HeatmapRow, ...]:
@@ -1025,6 +1028,27 @@ def _heatmap_legend() -> html.Div:
                             html.Span(className="heatmap-direction-mark"),
                             html.Span("Red stripe: decrease"),
                         ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="heatmap-row-limit-control",
+                children=[
+                    html.Label(
+                        "Top items", htmlFor="heatmap-row-limit", className="heatmap-legend-heading"
+                    ),
+                    dcc.Input(
+                        id="heatmap-row-limit",
+                        type="number",
+                        value=HEATMAP_ROW_LIMIT,
+                        min=1,
+                        max=HEATMAP_MAX_ROW_LIMIT,
+                        step=1,
+                        debounce=True,
+                    ),
+                    html.Small(
+                        "Press Enter or click outside to apply.",
+                        className="heatmap-row-limit-hint",
                     ),
                 ],
             ),
@@ -1338,7 +1362,7 @@ def _schema_diff_section(pair: GraphComparison) -> html.Div:
 
     children: list[object] = [
         html.P(
-            f"Schema differences of {_graph_title(pair.target)}"
+            f"Show schema differences of {_graph_title(pair.target)}"
             f" relative to the {_graph_title(pair.baseline)}"
             " baseline, including changes in overall node and "
             "edge composition summaries, node categories, and edge triples.",

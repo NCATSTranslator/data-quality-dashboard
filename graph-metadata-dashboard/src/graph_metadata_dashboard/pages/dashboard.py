@@ -24,6 +24,7 @@ from dash.exceptions import PreventUpdate
 from graph_metadata_dashboard.cache import MetadataCache
 from graph_metadata_dashboard.components.comparison import (
     comparison_dashboard,
+    comparison_heatmap_table,
     comparison_html_report,
 )
 from graph_metadata_dashboard.components.single_graph import (
@@ -732,6 +733,31 @@ def register_callbacks(
         if parsed is None:
             return _empty_state()
         return _overview(parsed)
+
+    @app.callback(
+        Output("comparison-heatmap-content", "children"),
+        Input("heatmap-row-limit", "value"),
+        State("loaded-graph-state", "data"),
+        State("comparison-baseline-selector", "value"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def update_comparison_heatmap(
+        row_limit: int | float | None,
+        graph_states: list[GraphState] | GraphState | None,
+        baseline_cache_key: str | None,
+        session_id: str | None,
+    ) -> Any:
+        states = _normalize_graph_states(graph_states)
+        if not session_id or len(states) < 2:
+            raise PreventUpdate
+        parsed_graphs, labels, _ = _comparison_inputs(
+            cache, kgx_client, url_client, session_id, states, baseline_cache_key
+        )
+        if len(parsed_graphs) < 2:
+            raise PreventUpdate
+        result = compare(parsed_graphs, labels=labels)
+        return comparison_heatmap_table(result.comparisons, row_limit=row_limit)
 
     @app.callback(
         Output("schema-diff-download", "data"),

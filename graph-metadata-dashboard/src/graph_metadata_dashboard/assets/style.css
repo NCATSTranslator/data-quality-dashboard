@@ -562,6 +562,22 @@ body {
   max-width: 32rem;
 }
 
+.heatmap-row-limit-control {
+  display: grid;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.heatmap-row-limit-control input {
+  width: 5rem;
+}
+
+.heatmap-row-limit-hint {
+  max-width: 14rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .heatmap-legend-heading {
   color: var(--muted);
   font-size: 0.76rem;
