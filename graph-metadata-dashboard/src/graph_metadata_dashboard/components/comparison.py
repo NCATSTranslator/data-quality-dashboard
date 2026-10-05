@@ -4,6 +4,7 @@ import html as html_lib
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import cast
 
 from dash import dash_table, dcc, html
 
@@ -19,6 +20,14 @@ from graph_metadata_dashboard.diff import (
     SourceChange,
     SubgraphChange,
     compare,
+)
+from graph_metadata_dashboard.diff.comparison import TOP_SCHEMA_DIFFS, TOP_SCHEMA_ROW_MAP_DIFFS
+from graph_metadata_dashboard.diff.details import (
+    EDGE_DETAILS,
+    NODE_DETAILS,
+    SchemaChangeDetails,
+    adaptive_inline_count,
+    split_map_changes,
 )
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
 
@@ -51,6 +60,9 @@ def comparison_dashboard(
     parsed_graphs: list[ParsedGraphMetadata],
     labels: list[str],
     load_errors: list[str],
+    *,
+    result: ComparisonResult | None = None,
+    result_token: str | None = None,
 ) -> html.Div:
     if len(parsed_graphs) < 2:
         return html.Div(
@@ -66,11 +78,13 @@ def comparison_dashboard(
             ],
         )
 
-    result = compare(parsed_graphs, labels=labels)
+    result = result or compare(parsed_graphs, labels=labels)
     has_schema_diff = any(pair.schema.raw is not None for pair in result.comparisons)
     return html.Div(
         className="content-card comparison-dashboard",
         children=[
+            dcc.Store(id="comparison-result-token", data=result_token),
+            _schema_changes_dialog(),
             html.Div(
                 className="section-heading-row comparison-dashboard-heading",
                 children=[
@@ -128,6 +142,7 @@ def comparison_dashboard(
                     pair,
                     collapsed=len(result.comparisons) > 1,
                     open_by_default=index == 0,
+                    pair_index=index,
                 )
                 for index, pair in enumerate(result.comparisons)
             ],
@@ -307,10 +322,10 @@ def _report_node_changes_table(changes: tuple[NodeSchemaChange, ...]) -> str:
                     change.label,
                     change.status,
                     _report_count_text(change.count, status=change.status),
-                    _report_map_text(change.id_prefix_changes),
-                    _report_map_text(change.attribute_changes),
+                    _report_map_text(change.id_prefix_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS),
+                    _report_map_text(change.attribute_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS),
                 )
-                for change in changes
+                for change in changes[:TOP_SCHEMA_DIFFS]
             ],
         )
     )
@@ -337,13 +352,17 @@ def _report_edge_changes_table(changes: tuple[EdgeSchemaChange, ...]) -> str:
                     _edge_schema_change_label(change),
                     change.status,
                     _report_count_text(change.count, status=change.status),
-                    _report_map_text(change.primary_source_changes),
-                    _report_map_text(change.qualifier_changes),
-                    _report_map_text(change.attribute_changes),
-                    _report_map_text(change.subject_id_prefix_changes),
-                    _report_map_text(change.object_id_prefix_changes),
+                    _report_map_text(change.primary_source_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS),
+                    _report_map_text(change.qualifier_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS),
+                    _report_map_text(change.attribute_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS),
+                    _report_map_text(
+                        change.subject_id_prefix_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS
+                    ),
+                    _report_map_text(
+                        change.object_id_prefix_changes, limit=TOP_SCHEMA_ROW_MAP_DIFFS
+                    ),
                 )
-                for change in changes
+                for change in changes[:TOP_SCHEMA_DIFFS]
             ],
         )
     )
@@ -448,11 +467,13 @@ def _report_count_text(delta: CountDelta, *, status: str) -> str:
     )
 
 
-def _report_map_text(changes: tuple[MapEntryChange, ...]) -> str:
+def _report_map_text(
+    changes: tuple[MapEntryChange, ...], *, limit: int = TOP_SCHEMA_DIFFS,
+) -> str:
     if not changes:
         return "No changes"
     groups = []
-    for status, grouped_changes in _group_map_changes(changes):
+    for status, grouped_changes in _group_map_changes(changes[:limit]):
         items = "; ".join(
             f"{change.label}: {_format_schema_delta(change.count, status=change.status)}"
             for change in grouped_changes
@@ -551,11 +572,11 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
                         ],
                     )
                 ),
-                html.Td(_baseline_cell(comparisons[0].baseline.release_version or "Unknown")),
-                html.Td(_baseline_cell(_format_count(comparisons[0].baseline.node_count))),
-                html.Td(_baseline_cell(_format_count(comparisons[0].baseline.edge_count))),
-                html.Td(_baseline_cell(_format_count(comparisons[0].baseline.source_count))),
-                html.Td(_baseline_cell(_format_count(comparisons[0].baseline.subgraph_count))),
+                html.Td(_overview_value_cell(comparisons[0].baseline.release_version or "Unknown")),
+                html.Td(_overview_value_cell(_format_count(comparisons[0].baseline.node_count))),
+                html.Td(_overview_value_cell(_format_count(comparisons[0].baseline.edge_count))),
+                html.Td(_overview_value_cell(_format_count(comparisons[0].baseline.source_count))),
+                html.Td(_overview_value_cell(_format_count(comparisons[0].baseline.subgraph_count))),
                 html.Td(_baseline_schema_type_overview_cell(comparisons)),
             ]
         ),
@@ -565,7 +586,7 @@ def _n_way_overview(comparisons: tuple[GraphComparison, ...]) -> html.Div:
             html.Tr(
                 children=[
                     html.Td(pair.target.label),
-                    html.Td(_metadata_release_cell(pair)),
+                    html.Td(_overview_value_cell(pair.target.release_version or "Unknown")),
                     html.Td(
                         _metric_delta_cell(
                             _format_count(pair.target.node_count),
@@ -1215,6 +1236,7 @@ def _comparison_pair_section(
     *,
     collapsed: bool,
     open_by_default: bool,
+    pair_index: int | None = None,
 ) -> html.Div:
     if not pair.schema.available:
         return _schema_diff_section(pair)
@@ -1222,7 +1244,7 @@ def _comparison_pair_section(
         f"Schema-Level Differences: {_graph_title(pair.baseline)} "
         f"-> {_graph_title(pair.target)}"
     )
-    contents = [_schema_diff_section(pair)]
+    contents = [_schema_diff_section(pair, pair_index=pair_index)]
     if collapsed:
         return html.Details(
             className="comparison-pair-card comparison-pair-details",
@@ -1350,7 +1372,7 @@ def _subgraph_changes_table(
     )
 
 
-def _schema_diff_section(pair: GraphComparison) -> html.Div:
+def _schema_diff_section(pair: GraphComparison, *, pair_index: int | None = None) -> html.Div:
     schema = pair.schema
     if not schema.available:
         return html.Div(
@@ -1371,8 +1393,8 @@ def _schema_diff_section(pair: GraphComparison) -> html.Div:
     ]
     children.extend(
         [
-            _schema_summary_table(schema),
-            _schema_entry_tables(schema),
+            _schema_summary_table(schema, pair_index=pair_index),
+            _schema_entry_tables(schema, pair_index=pair_index),
         ]
     )
     return html.Div(
@@ -1381,10 +1403,10 @@ def _schema_diff_section(pair: GraphComparison) -> html.Div:
     )
 
 
-def _schema_entry_tables(schema: SchemaDiffSummary) -> html.Div:
+def _schema_entry_tables(schema: SchemaDiffSummary, *, pair_index: int | None = None) -> html.Div:
     sections = [
-        _node_schema_table(schema.node_changes),
-        _edge_schema_table(schema.edge_changes),
+        _node_schema_table(schema.node_changes, pair_index=pair_index),
+        _edge_schema_table(schema.edge_changes, pair_index=pair_index),
     ]
     sections = [section for section in sections if section is not None]
     if not sections:
@@ -1395,7 +1417,7 @@ def _schema_entry_tables(schema: SchemaDiffSummary) -> html.Div:
     return html.Div(className="schema-entry-grid", children=sections)
 
 
-def _schema_summary_table(schema: SchemaDiffSummary) -> html.Div:
+def _schema_summary_table(schema: SchemaDiffSummary, *, pair_index: int | None = None) -> html.Div:
     card_specs = [
         (
             _schema_type_weight(schema.node_type_count),
@@ -1406,52 +1428,73 @@ def _schema_summary_table(schema: SchemaDiffSummary) -> html.Div:
             _schema_summary_card("Edge type", _schema_type_cell(schema.edge_type_count)),
         ),
         (
-            len(schema.node_id_prefix_changes),
+            min(len(schema.node_id_prefix_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Node ID prefixes",
-                _schema_map_cell(schema.node_id_prefix_changes),
+                _schema_map_cell(
+                    schema.node_id_prefix_changes, pair_index=pair_index,
+                    category="node_id_prefix_changes",
+                ),
             ),
         ),
         (
-            len(schema.node_attribute_changes),
+            min(len(schema.node_attribute_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Node attributes",
-                _schema_map_cell(schema.node_attribute_changes),
+                _schema_map_cell(
+                    schema.node_attribute_changes, pair_index=pair_index,
+                    category="node_attribute_changes",
+                ),
             ),
         ),
         (
-            len(schema.edge_predicate_changes),
+            min(len(schema.edge_predicate_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Edge predicates",
-                _schema_map_cell(schema.edge_predicate_changes),
+                _schema_map_cell(
+                    schema.edge_predicate_changes, pair_index=pair_index,
+                    category="edge_predicate_changes",
+                ),
             ),
         ),
         (
-            len(schema.edge_source_changes),
+            min(len(schema.edge_source_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Edge primary sources",
-                _schema_map_cell(schema.edge_source_changes),
+                _schema_map_cell(
+                    schema.edge_source_changes, pair_index=pair_index,
+                    category="edge_source_changes",
+                ),
             ),
         ),
         (
-            len(schema.edge_source_predicate_changes),
+            min(len(schema.edge_source_predicate_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Edge source-predicate composition",
-                _schema_map_cell(schema.edge_source_predicate_changes),
+                _schema_map_cell(
+                    schema.edge_source_predicate_changes, pair_index=pair_index,
+                    category="edge_source_predicate_changes",
+                ),
             ),
         ),
         (
-            len(schema.edge_qualifier_changes),
+            min(len(schema.edge_qualifier_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Edge qualifiers",
-                _schema_map_cell(schema.edge_qualifier_changes),
+                _schema_map_cell(
+                    schema.edge_qualifier_changes, pair_index=pair_index,
+                    category="edge_qualifier_changes",
+                ),
             ),
         ),
         (
-            len(schema.edge_attribute_changes),
+            min(len(schema.edge_attribute_changes), TOP_SCHEMA_DIFFS),
             _schema_summary_card(
                 "Edge attributes",
-                _schema_map_cell(schema.edge_attribute_changes),
+                _schema_map_cell(
+                    schema.edge_attribute_changes, pair_index=pair_index,
+                    category="edge_attribute_changes",
+                ),
             ),
         ),
     ]
@@ -1523,15 +1566,20 @@ def _schema_type_weight(type_count: dict[str, int] | None) -> int:
     )
 
 
-def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None:
+def _node_schema_table(
+    changes: tuple[NodeSchemaChange, ...], *, pair_index: int | None = None,
+    start_index: int = 0, expanded: bool = False,
+) -> html.Div | None:
     if not changes:
         return None
+    inline_count = adaptive_inline_count(len(changes), TOP_SCHEMA_DIFFS)
     max_count_delta = _max_count_delta(change.count for change in changes)
     return html.Div(
         className="schema-entry-section",
         children=[
             html.Details(
                 className="schema-table-panel",
+                open=expanded,
                 children=[
                     html.Summary("Node Category Changes"),
                     html.P(
@@ -1550,11 +1598,23 @@ def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None
                                     max_delta=max_count_delta,
                                     status=change.status,
                                 ),
-                                _schema_map_cell(change.id_prefix_changes),
-                                _schema_map_cell(change.attribute_changes),
+                                *[
+                                    _schema_map_cell(
+                                        getattr(change, attribute),
+                                        limit=TOP_SCHEMA_ROW_MAP_DIFFS,
+                                        pair_index=pair_index,
+                                        category=f"node_changes/{index}/{attribute}",
+                                    )
+                                    for attribute in NODE_DETAILS
+                                ],
                             )
-                            for change in changes
+                            for index, change in enumerate(
+                                changes if expanded else changes[:inline_count], start_index
+                            )
                         ],
+                    ),
+                    "" if expanded else _more_schema_changes(
+                        len(changes), pair_index, "node_changes", limit=inline_count
                     ),
                 ],
             ),
@@ -1562,15 +1622,20 @@ def _node_schema_table(changes: tuple[NodeSchemaChange, ...]) -> html.Div | None
     )
 
 
-def _edge_schema_table(changes: tuple[EdgeSchemaChange, ...]) -> html.Div | None:
+def _edge_schema_table(
+    changes: tuple[EdgeSchemaChange, ...], *, pair_index: int | None = None,
+    start_index: int = 0, expanded: bool = False,
+) -> html.Div | None:
     if not changes:
         return None
+    inline_count = adaptive_inline_count(len(changes), TOP_SCHEMA_DIFFS)
     max_count_delta = _max_count_delta(change.count for change in changes)
     return html.Div(
         className="schema-entry-section",
         children=[
             html.Details(
                 className="schema-table-panel",
+                open=expanded,
                 children=[
                     html.Summary("Edge Triple Changes"),
                     html.P(
@@ -1597,14 +1662,23 @@ def _edge_schema_table(changes: tuple[EdgeSchemaChange, ...]) -> html.Div | None
                                     max_delta=max_count_delta,
                                     status=change.status,
                                 ),
-                                _schema_map_cell(change.primary_source_changes),
-                                _schema_map_cell(change.qualifier_changes),
-                                _schema_map_cell(change.attribute_changes),
-                                _schema_map_cell(change.subject_id_prefix_changes),
-                                _schema_map_cell(change.object_id_prefix_changes),
+                                *[
+                                    _schema_map_cell(
+                                        getattr(change, attribute),
+                                        limit=TOP_SCHEMA_ROW_MAP_DIFFS,
+                                        pair_index=pair_index,
+                                        category=f"edge_changes/{index}/{attribute}",
+                                    )
+                                    for attribute in EDGE_DETAILS
+                                ],
                             )
-                            for change in changes
+                            for index, change in enumerate(
+                                changes if expanded else changes[:inline_count], start_index
+                            )
                         ],
+                    ),
+                    "" if expanded else _more_schema_changes(
+                        len(changes), pair_index, "edge_changes", limit=inline_count
                     ),
                 ],
             ),
@@ -1684,18 +1758,175 @@ def _schema_count_cell(
 
 def _schema_map_cell(
     changes: tuple[MapEntryChange, ...],
+    *,
+    limit: int | None = TOP_SCHEMA_DIFFS,
+    pair_index: int | None = None,
+    category: str | None = None,
+    compact_headings: bool = False,
+    show_status_labels: bool = False,
 ) -> html.Div:
     if not changes:
         return html.Div(className="schema-map-cell muted-cell", children="No changes")
     max_delta = _max_count_delta(change.count for change in changes)
+    visible = changes if limit is None else split_map_changes(changes, limit)[0]
+    visible_groups = dict(_group_map_changes(visible))
+    groups = _group_map_changes(changes)
     children: list[object] = [
-        _schema_map_group(status, grouped_changes, max_delta=max_delta)
-        for status, grouped_changes in _group_map_changes(changes)
+        _schema_map_group(
+            status, visible_groups.get(status, ()), max_delta=max_delta,
+            total_count=len(grouped_changes),
+            show_heading=not compact_headings or len(groups) > 1 or show_status_labels,
+            show_count=not compact_headings,
+        )
+        for status, grouped_changes in groups
     ]
+    if limit is not None:
+        children.append(_more_schema_changes(
+            len(changes), pair_index, category, limit=len(visible)
+        ))
     return html.Div(
         className="schema-map-cell",
         children=children,
     )
+
+
+def _more_schema_changes(
+    total: int, pair_index: int | None, category: str | None, *, limit: int = TOP_SCHEMA_DIFFS,
+) -> html.Button | str:
+    if total <= limit or pair_index is None or category is None:
+        return ""
+    return html.Button(
+        f"View remaining changes ({total - limit:,})",
+        id={"type": "schema-more", "pair": pair_index, "category": category},
+        n_clicks=0,
+        type="button",
+        className="button button-tertiary schema-more-button",
+        **{"data-dialog-target": "schema-changes-dialog"},
+    )
+
+
+def _schema_changes_dialog() -> html.Dialog:
+    return html.Dialog(
+        id="schema-changes-dialog",
+        className="comparison-dialog schema-changes-dialog",
+        **{"aria-label": "Remaining schema changes"},
+        children=html.Div(
+            className="comparison-dialog-card",
+            children=[
+                dcc.Store(id="schema-detail-selection"),
+                dcc.Loading(
+                    html.Div(
+                        schema_detail_layout("Remaining schema changes", [
+                            html.P("Select a category to load its remaining changes."),
+                        ]),
+                        id="schema-detail-content", **{"aria-live": "polite"},
+                    ),
+                    type="circle",
+                ),
+            ],
+        ),
+    )
+
+
+def schema_detail_layout(
+    title: object, content: list[object], controls: list[object] | None = None,
+    *, show_close: bool = True,
+) -> html.Div:
+    return html.Div(children=[
+        html.Div(className="schema-dialog-header", children=[
+            html.H4(title),
+            html.Div(className="schema-dialog-actions", children=[
+                *(controls or []),
+                html.Button(
+                    "Close", type="button", className="button button-quiet",
+                    **{"data-dialog-close": "schema-changes-dialog"},
+                ) if show_close else "",
+            ]),
+        ]),
+        *content,
+    ])
+
+
+def _schema_page_button(
+    direction: str, label: str, icon: str, *, disabled: bool, level: int,
+) -> html.Button:
+    return html.Button(
+        html.Span(icon, **{"aria-hidden": "true"}),
+        id={"type": "schema-page", "direction": direction, "level": level},
+        n_clicks=0, disabled=disabled, title=label,
+        type="button", className="button button-quiet schema-page-button",
+        **{"aria-label": label, "data-dialog-target": "schema-changes-dialog"},
+    )
+
+
+def schema_detail_content(details: SchemaChangeDetails, *, has_parent: bool = False) -> html.Div:
+    if details.category == "node_changes":
+        content = _node_schema_table(
+            cast(tuple[NodeSchemaChange, ...], details.changes),
+            pair_index=details.pair_index,
+            start_index=details.inline_count + details.start_index, expanded=True,
+        )
+    elif details.category == "edge_changes":
+        content = _edge_schema_table(
+            cast(tuple[EdgeSchemaChange, ...], details.changes),
+            pair_index=details.pair_index,
+            start_index=details.inline_count + details.start_index, expanded=True,
+        )
+    else:
+        content = _schema_map_cell(
+            cast(tuple[MapEntryChange, ...], details.changes), limit=None, compact_headings=True,
+            show_status_labels=details.remaining_status is None,
+        )
+    title = [
+        details.title,
+        " — ",
+        html.Span(
+            f"{details.baseline_label} -> {details.target_label}",
+            className="schema-dialog-comparison",
+        ),
+    ]
+    controls: list[object] = []
+    level = int(has_parent)
+    noun = {"added": "additions", "removed": "removals"}.get(details.remaining_status, "changes")
+    summary = (
+        f"Showing {len(details.changes):,} remaining {noun} of {details.total:,} total changes; "
+        f"{details.inline_count:,} are shown inline."
+    )
+    if details.page_count > 1:
+        summary = (
+            f"Showing {details.start_index + 1:,}–"
+            f"{details.start_index + len(details.changes):,} of "
+            f"{details.remaining_count:,} remaining {noun}; "
+            f"{details.total:,} total changes, {details.inline_count:,} shown inline."
+        )
+        controls = [
+            _schema_page_button(
+                "first", "First page", "«", disabled=details.page_index == 0, level=level,
+            ),
+            _schema_page_button(
+                "previous", "Previous page", "‹", disabled=details.page_index == 0, level=level,
+            ),
+            html.Span(f"Page {details.page_index + 1} of {details.page_count}"),
+            _schema_page_button(
+                "next", "Next page", "›", disabled=details.page_index == details.page_count - 1,
+                level=level,
+            ),
+            _schema_page_button(
+                "last", "Last page", "»", disabled=details.page_index == details.page_count - 1,
+                level=level,
+            ),
+        ]
+    if has_parent:
+        controls.insert(0, html.Button(
+            "Back", id={"type": "schema-page", "direction": "back", "level": level},
+            n_clicks=0, type="button", className="button button-quiet",
+            title="Return to the parent changes view",
+            **{"data-dialog-target": "schema-changes-dialog", "data-dialog-back": "true"},
+        ))
+    return schema_detail_layout(title, [
+        html.P(summary, className="comparison-table-note"),
+        content,
+    ], controls, show_close=not has_parent)
 
 
 def _schema_map_group(
@@ -1703,7 +1934,11 @@ def _schema_map_group(
     changes: tuple[MapEntryChange, ...],
     *,
     max_delta: int,
+    total_count: int | None = None,
+    show_heading: bool = True,
+    show_count: bool = True,
 ) -> html.Div:
+    total_count = len(changes) if total_count is None else total_count
     rows = []
     for change in changes:
         tooltip = _schema_delta_tooltip(change.count, status=change.status)
@@ -1734,9 +1969,13 @@ def _schema_map_group(
         className=f"schema-map-group schema-map-group-{status}",
         children=[
             html.Span(
-                f"{len(changes):,} {status}",
+                f"{total_count:,} {status}" if show_count else status,
                 className="schema-map-group-heading",
-            ),
+            ) if show_heading else "",
+            html.Span(
+                f"Showing {len(changes):,} of {total_count:,}",
+                className="schema-map-summary",
+            ) if len(changes) < total_count else "",
             *rows,
         ],
     )
@@ -1752,7 +1991,7 @@ def _group_map_changes(
     ]
 
 
-def _baseline_cell(value: str) -> html.Div:
+def _overview_value_cell(value: str) -> html.Div:
     return html.Div(
         className="comparison-overview-cell",
         children=[
@@ -2022,16 +2261,6 @@ def _metadata_change_cell(
             )
         )
     return html.Div(className=f"comparison-overview-cell {cell_class}", children=children)
-
-
-def _metadata_release_cell(pair: GraphComparison) -> html.Div:
-    release = pair.target.release_version or "Unknown"
-    return html.Div(
-        className="comparison-overview-cell",
-        children=[
-            html.Strong(release),
-        ],
-    )
 
 
 def _delta_bar(

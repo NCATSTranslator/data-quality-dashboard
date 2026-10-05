@@ -865,7 +865,7 @@ def _sankey_clicked_node_index(
         ):
             return point_number
 
-    clicked_custom_label = _sankey_clicked_customdata_label(point)
+    clicked_custom_label = _sankey_customdata_label(point.get("customdata"))
     if clicked_custom_label:
         custom_matches = [
             index
@@ -879,11 +879,6 @@ def _sankey_clicked_node_index(
 
 def _sankey_click_is_link(point: dict[str, object]) -> bool:
     return any(key in point for key in ("source", "target"))
-
-
-def _sankey_clicked_customdata_label(point: dict[str, object]) -> str | None:
-    customdata = point.get("customdata")
-    return _sankey_customdata_label(customdata)
 
 
 def _sankey_customdata_label(value: object) -> str | None:

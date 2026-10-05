@@ -4,12 +4,15 @@ import base64
 import json
 from dataclasses import replace
 from importlib import import_module
+from types import SimpleNamespace
 
 import pytest
-from dash import dcc, html, page_registry
+from dash import Patch, dcc, html, page_registry
 from dash.exceptions import PreventUpdate
+from plotly.utils import PlotlyJSONEncoder
 
 from graph_metadata_dashboard.app import create_app
+from graph_metadata_dashboard.cache.comparison import load_comparison, store_comparison
 from graph_metadata_dashboard.cache.memory import InMemoryMetadataCache
 from graph_metadata_dashboard.components import comparison as comparison_components
 from graph_metadata_dashboard.components.single_graph import (
@@ -20,6 +23,11 @@ from graph_metadata_dashboard.components.single_graph import (
 )
 from graph_metadata_dashboard.config import Settings
 from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SourceChange, SubgraphChange
+from graph_metadata_dashboard.diff.details import (
+    adaptive_inline_count,
+    remaining_schema_changes,
+    split_map_changes,
+)
 from graph_metadata_dashboard.loaders.kgx_storage import KgxStorageClient
 from graph_metadata_dashboard.loaders.url import UrlMetadataClient
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata, parse_schema
@@ -194,6 +202,13 @@ def test_comparison_dashboard_replaces_placeholder_for_multiple_graphs() -> None
     assert "Show changes" in text
     assert "Alliance Copy" in _flatten_text(overview_table)
     assert "No changes" in _flatten_text(overview_table)
+    overview_rows = _find_elements_by_type(overview_table, "Tr")[1:]
+    for row, graph in zip(overview_rows, (first, second, third), strict=True):
+        release_cell = row.children[1].children
+        assert release_cell.className == "comparison-overview-cell"
+        assert _find_elements_by_type(release_cell, "Strong")[0].children == (
+            graph.release_version or "Unknown"
+        )
     assert source_tables
     source_column_names = [column["name"] for column in source_tables[0].columns]
     assert source_column_names[0] == "Status"
@@ -606,7 +621,10 @@ def test_comparison_dashboard_hides_unchanged_subgraph_section() -> None:
 
     assert "Subgraph Source Changes" not in " ".join(_flatten_text(dashboard))
     assert "Schema-Level Differences:" not in " ".join(_flatten_text(dashboard))
-    assert not _find_elements_by_type(dashboard, "Dialog")
+    assert all(
+        dialog.id == "schema-changes-dialog"
+        for dialog in _find_elements_by_type(dashboard, "Dialog")
+    )
     subgraph_cell = _find_elements_by_class(dashboard, "subgraph-overview-cell")[0]
     assert "No changes" in _flatten_text(subgraph_cell)
     assert not _find_elements_by_type(subgraph_cell, "Button")
@@ -1003,7 +1021,9 @@ def test_schema_difference_panels_hide_added_removed_percentages() -> None:
     )[0].title
 
 
-def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline() -> None:
+def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
     page_module = _registered_page_module("dashboard")
     cache = InMemoryMetadataCache()
@@ -1024,20 +1044,463 @@ def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline() -
     )
     callback = app.callback_map["comparison-heatmap-content.children"]
     update_heatmap = callback["callback"].__wrapped__
+    dashboard = page_module._comparison_dashboard(
+        cache, KgxStorageClient("https://kgx-storage.example/releases"),
+        UrlMetadataClient(("https://metadata.example",)),
+        session_id, states, "translator_kg_open",
+    )
+    token = next(
+        store.data for store in _find_elements_by_type(dashboard, "Store")
+        if store.id == "comparison-result-token"
+    )
+    page_module._comparison_dashboard(
+        cache, KgxStorageClient("https://kgx-storage.example/releases"),
+        UrlMetadataClient(("https://metadata.example",)),
+        session_id, states, "robokopkg",
+    )
+    render_overview = app.callback_map["overview-panel.children"]["callback"].__wrapped__
+    render_overview([], None, session_id)
+    def unexpected_compare(*args: object, **kwargs: object) -> None:
+        raise AssertionError("A heatmap update must reuse the comparison snapshot")
+
+    monkeypatch.setattr(page_module, "compare", unexpected_compare)
 
     assert callback["inputs"] == [{"id": "heatmap-row-limit", "property": "value"}]
     for row_limit, expected_rows in ((5, 5), (35, 35), (None, 20)):
-        table = update_heatmap(row_limit, states, "translator_kg_open", session_id)
+        table = update_heatmap(row_limit, token, session_id)
         assert len(_find_elements_by_type(table, "Tbody")[0].children) == expected_rows
         assert "translator_kg_open" in _flatten_text(table.children[0])[2]
         assert "alliance" in _flatten_text(table.children[0])[2]
         assert not _find_elements_by_type(table, "Input")
 
-    for selected_states, selected_session in (
-        ([], session_id), (states[:1], session_id), (states, None)
+    for selected_token, selected_session in (
+        (None, session_id), ("stale-token", session_id), (token, None)
     ):
-        with pytest.raises(PreventUpdate):
-            update_heatmap(5, selected_states, None, selected_session)
+        message = update_heatmap(5, selected_token, selected_session)
+        assert "Comparison expired or changed" in " ".join(_flatten_text(message))
+
+
+def test_schema_dialog_pages_large_remaining_data_without_recomputing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    session_id = "schema-detail-session"
+    states = []
+    for name in ("alliance", "translator_kg_open", "robokopkg"):
+        graph = parse_graph_metadata(
+            load_fixture(f"{name}.graph-metadata.json"),
+            schema_data=load_fixture("robokopkg.schema.json") if name == "robokopkg" else None,
+        )
+        cache.set(session_id, name, graph)
+        states.append({"cache_key": name, "kind": "upload", "label": name})
+    kgx_client = KgxStorageClient("https://kgx-storage.example/releases")
+    url_client = UrlMetadataClient(("https://metadata.example",))
+    page_module.register_callbacks(app, cache=cache, kgx_client=kgx_client, url_client=url_client)
+    dashboard = page_module._comparison_dashboard(
+        cache, kgx_client, url_client, session_id, states
+    )
+    stores = _find_elements_by_type(dashboard, "Store")
+    token = next(store.data for store in stores if store.id == "comparison-result-token")
+    assert isinstance(token, str)
+    assert all(isinstance(getattr(store, "data", None), (str, type(None))) for store in stores)
+    result = load_comparison(cache, session_id, token)
+    assert result is not None
+    schema = result.comparisons[1].schema
+    assert len(schema.node_attribute_changes) > 1000
+    for table in _find_elements_by_class(dashboard, "schema-edge-table"):
+        assert len(_find_elements_by_type(table, "Tbody")[0].children) == 25
+        assert len(_find_elements_by_class(table, "schema-map-row")) <= 27 * 5 * 8 * 3
+
+    dialog = next(
+        item for item in _find_elements_by_type(dashboard, "Dialog")
+        if item.id == "schema-changes-dialog"
+    )
+    assert not _find_elements_by_class(dialog, "schema-map-row")
+    assert not _find_elements_by_class(dialog, "schema-rich-table")
+    assert [button.children for button in _find_elements_by_type(dialog, "Button")] == ["Close"]
+    assert _find_elements_by_type(dialog, "Store")[0].id == "schema-detail-selection"
+    more_buttons = _find_elements_by_class(dashboard, "schema-more-button")
+    button = next(
+        item for item in more_buttons
+        if item.id == {"type": "schema-more", "pair": 1, "category": "node_attribute_changes"}
+    )
+    remaining = split_map_changes(schema.node_attribute_changes, 25)[1]
+    assert len(remaining) > 1000
+    assert button.children == f"View remaining changes ({len(remaining):,})"
+    assert getattr(button, "data-dialog-target") == "schema-changes-dialog"
+    assert len({json.dumps(item.id, sort_keys=True) for item in more_buttons}) == len(more_buttons)
+
+    def unexpected_compare(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Opening details must not rerun comparison")
+
+    monkeypatch.setattr(page_module, "compare", unexpected_compare)
+    monkeypatch.setattr(page_module, "load_comparison", unexpected_compare)
+    context = SimpleNamespace(triggered=[{"value": 1}], triggered_id=button.id)
+    monkeypatch.setattr(page_module, "callback_context", context)
+    registered_callback = next(
+        entry["callback"].__wrapped__ for key, entry in app.callback_map.items()
+        if "schema-detail-content.children" in key
+    )
+    dialog_views = None
+    responses = []
+
+    def callback(*args: object) -> tuple[object, object]:
+        nonlocal dialog_views
+        response, current_selection = registered_callback(*args)
+        responses.append(response)
+        if isinstance(response, Patch):
+            assert isinstance(dialog_views, list)
+            for operation in response.to_plotly_json()["operations"]:
+                assert operation["operation"] == "Assign"
+                index, props, attribute = operation["location"]
+                assert props == "props"
+                setattr(dialog_views[index], attribute, operation["params"]["value"])
+        else:
+            dialog_views = response
+        if isinstance(dialog_views, list):
+            active = int(bool(current_selection and current_selection.get("parents")))
+            return dialog_views[active].children, current_selection
+        return dialog_views, current_selection
+
+    content, selection = callback([1], [], None, token, session_id)
+    assert len(json.dumps(selection)) < 512
+    assert "alliance -> robokopkg" in _flatten_text(content)
+    header = _find_elements_by_class(content, "schema-dialog-header")[0]
+    assert "Node attributes" in _flatten_text(header)
+    assert "alliance -> robokopkg" in _flatten_text(header)
+    controls = _find_elements_by_type(header, "Button")
+    assert [getattr(item, "aria-label", item.children) for item in controls] == [
+        "First page", "Previous page", "Next page", "Last page", "Close"
+    ]
+    assert [item.disabled for item in controls[:4]] == [True, True, False, False]
+    for control in controls[:4]:
+        assert control.title == getattr(control, "aria-label")
+        assert getattr(control.children, "aria-hidden") == "true"
+    assert [item.children.children for item in controls[:4]] == ["«", "‹", "›", "»"]
+    assert not _find_elements_by_class(content, "schema-map-group-heading")
+    assert len(_find_elements_by_class(content, "schema-map-row")) == 50
+    labels = [item.children for item in _find_elements_by_class(content, "schema-map-label")]
+    assert labels == [
+        change.label for _, group in comparison_components._group_map_changes(remaining[:50])
+        for change in group
+    ]
+    summary = " ".join(_flatten_text(content))
+    assert f"Showing 1–50 of {len(remaining):,} remaining additions" in summary
+    assert "Showing all" not in " ".join(_flatten_text(content))
+    assert not _find_elements_by_class(content, "schema-more-button")
+    assert len(json.dumps(content, cls=PlotlyJSONEncoder)) < 200_000
+
+    context.triggered_id = {"type": "schema-page", "direction": "next"}
+    following, next_selection = callback([1], [1], selection, token, session_id)
+    assert next_selection["page"] == 1
+    assert all(
+        not item.disabled for item in _find_elements_by_class(following, "schema-page-button")
+    )
+    following_labels = _find_elements_by_class(following, "schema-map-label")
+    assert {item.children for item in following_labels} == {
+        item.label for item in remaining[50:100]
+    }
+    context.triggered_id = {"type": "schema-page", "direction": "previous"}
+    previous, _ = callback([1], [1], next_selection, token, session_id)
+    assert _flatten_text(previous) == _flatten_text(content)
+    context.triggered_id = {"type": "schema-page", "direction": "next"}
+    with pytest.raises(PreventUpdate):
+        callback([1], [1], dict(selection, token="stale-token"), token, session_id)
+    context.triggered_id = {"type": "schema-page", "direction": "last"}
+    last, last_selection = callback([1], [1], selection, token, session_id)
+    details = remaining_schema_changes(result, 1, "node_attribute_changes")
+    assert last_selection["page"] == details.page_count - 1
+    assert 3 <= len(_find_elements_by_class(last, "schema-map-row")) <= 52
+    last_controls = _find_elements_by_type(
+        _find_elements_by_class(last, "schema-dialog-header")[0], "Button"
+    )
+    assert [item.disabled for item in last_controls[:4]] == [False, False, True, True]
+    assert {item.children for item in _find_elements_by_class(last, "schema-map-label")} == {
+        item.label for item in remaining[last_selection["page"] * 50:]
+    }
+    context.triggered_id = {"type": "schema-page", "direction": "first"}
+    first, first_selection = callback([1], [1], last_selection, token, session_id)
+    assert first_selection == selection
+    assert _flatten_text(first) == _flatten_text(content)
+
+    context.triggered_id = {"type": "schema-more", "pair": 1, "category": "edge_changes"}
+    edge_content, edge_selection = callback([1], [], last_selection, token, session_id)
+    assert edge_selection["page"] == 0
+    edge_table = _find_elements_by_class(edge_content, "schema-edge-table")[0]
+    edge_rows = _find_elements_by_type(edge_table, "Tbody")[0].children
+    assert len(edge_rows) == 50
+    assert all(
+        item.id["category"] != "edge_changes"
+        for item in _find_elements_by_class(edge_content, "schema-more-button")
+    )
+    assert _find_elements_by_type(edge_content, "Details")[0].open is True
+    context.triggered_id = {"type": "schema-page", "direction": "next"}
+    next_edges, next_edge_selection = callback([1], [1], edge_selection, token, session_id)
+    assert all(
+        75 <= int(item.id["category"].split("/")[1]) < 125
+        for item in _find_elements_by_class(next_edges, "schema-more-button")
+    )
+    child_button = _find_elements_by_class(next_edges, "schema-more-button")[0]
+    context.triggered_id = child_button.id
+    child, child_selection = callback([1], [], next_edge_selection, token, session_id)
+    assert dialog_views[0].children is next_edges
+    assert dialog_views[0].style == {"display": "none"}
+    mounted_buttons = _find_elements_by_type(dialog_views, "Button")
+    mounted_ids = [json.dumps(item.id, sort_keys=True) for item in mounted_buttons
+                   if hasattr(item, "id")]
+    assert len(mounted_ids) == len(set(mounted_ids))
+    context.triggered_id = {"type": "schema-page", "direction": "next", "level": 0}
+    with pytest.raises(PreventUpdate):
+        callback([1], [1], child_selection, token, session_id)
+    assert child_selection["parents"] == [{"pair": 1, "category": "edge_changes", "page": 1}]
+    assert len(json.dumps(child_selection)) < 512
+    child_header = _find_elements_by_class(child, "schema-dialog-header")[0]
+    child_buttons = [item.children for item in _find_elements_by_type(child_header, "Button")]
+    assert "Back" in child_buttons
+    assert "Close" not in child_buttons
+    context.triggered_id = {"type": "schema-page", "direction": "next"}
+    _, child_next_selection = callback([1], [1], child_selection, token, session_id)
+    assert child_next_selection["parents"] == child_selection["parents"]
+    context.triggered_id = {"type": "schema-page", "direction": "last"}
+    _, child_last_selection = callback([1], [1], child_next_selection, token, session_id)
+    assert child_last_selection["parents"] == child_selection["parents"]
+    context.triggered_id = {"type": "schema-page", "direction": "first"}
+    _, child_next_selection = callback([1], [1], child_last_selection, token, session_id)
+    assert child_next_selection == child_selection
+    context.triggered_id = {"type": "schema-page", "direction": "back"}
+    with monkeypatch.context() as back_context:
+        back_context.setattr(page_module, "schema_detail_content", unexpected_compare)
+        parent, restored_selection = callback([1], [1], child_next_selection, token, session_id)
+    assert parent is next_edges
+    assert dialog_views[0].style == {}
+    assert dialog_views[1].children is None
+    assert len(json.dumps(responses[-1], cls=PlotlyJSONEncoder)) < 512
+    assert restored_selection == next_edge_selection
+    assert _flatten_text(parent) == _flatten_text(next_edges)
+    assert not restored_selection["parents"]
+    with pytest.raises(PreventUpdate):
+        callback([1], [1], dict(child_selection, token="stale"), token, session_id)
+    with pytest.raises(PreventUpdate):
+        callback([1], [1], restored_selection, token, session_id)
+    context.triggered_id = {"type": "schema-more", "pair": 1,
+                            "category": "edge_changes/0/attribute_changes"}
+    inline_child, inline_selection = callback([1], [], restored_selection, token, session_id)
+    assert not inline_selection["parents"]
+    inline_header = _find_elements_by_class(inline_child, "schema-dialog-header")[0]
+    assert "Back" not in [item.children for item in _find_elements_by_type(inline_header, "Button")]
+
+    context.triggered_id = {"type": "schema-more", "pair": 0, "category": "node_attribute_changes"}
+    small, small_selection = callback([1], [], edge_selection, token, session_id)
+    assert small_selection["page"] == 0
+    assert not small_selection["parents"]
+    assert not _find_elements_by_class(small, "schema-map-row")
+    assert [button.children for button in _find_elements_by_type(small, "Button")] == ["Close"]
+    context.triggered_id = button.id
+    denied, _ = callback([1], [], selection, token, "another-session")
+    assert "Comparison expired or changed" in " ".join(_flatten_text(denied))
+    assert [button.children for button in _find_elements_by_type(denied, "Button")] == ["Close"]
+    context.triggered_id = {"type": "schema-more", "pair": 1, "category": "invalid"}
+    unavailable, _ = callback([1], [], selection, token, session_id)
+    assert "The requested schema category is unavailable." in _flatten_text(unavailable)
+    unavailable_buttons = _find_elements_by_type(unavailable, "Button")
+    assert [button.children for button in unavailable_buttons] == ["Close"]
+    context.triggered = [{"value": 0}]
+    with pytest.raises(PreventUpdate):
+        callback([0], [], selection, token, session_id)
+    context.triggered = [{"value": [0, 0]}]
+    context.triggered_id = {"type": "schema-page", "direction": ["ALL"]}
+    with pytest.raises(PreventUpdate):
+        callback([1], [0, 0], selection, token, session_id)
+    context.triggered = [{"value": 1}]
+    row_index = max(
+        range(len(schema.node_changes)),
+        key=lambda index: len(schema.node_changes[index].attribute_changes),
+    )
+    context.triggered_id = {
+        "type": "schema-more", "pair": 1,
+        "category": f"node_changes/{row_index}/attribute_changes",
+    }
+    nested, nested_selection = callback([1], [], next_selection, token, session_id)
+    assert nested_selection["page"] == 0
+    labels = [item.children for item in _find_elements_by_class(nested, "schema-map-label")]
+    nested_remaining = split_map_changes(schema.node_changes[row_index].attribute_changes, 6)[1]
+    assert set(labels) == {change.label for change in nested_remaining[:50]}
+    assert len(labels) == 50
+    assert len(nested_remaining) > 1000
+    context.triggered_id = button.id
+    store_comparison(cache, session_id, result)
+    refreshed, _ = callback([1], [], selection, token, session_id)
+    assert len(_find_elements_by_class(refreshed, "schema-map-row")) == 50
+    cache.delete(session_id, f"comparison:{token}:index")
+    context.triggered_id = {"type": "schema-page", "direction": "back", "level": 1}
+    expired, expired_selection = callback([1], [1], child_selection, token, session_id)
+    assert expired_selection is None
+    assert "Comparison expired or changed" in " ".join(_flatten_text(expired))
+    assert not isinstance(responses[-1], Patch)
+
+
+def test_heatmap_complete_candidates_include_changes_beyond_old_schema_cutoff() -> None:
+    baseline = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    target = parse_graph_metadata(
+        load_fixture("robokopkg.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json"),
+    )
+    pair = comparison_components.compare([baseline, target]).comparisons[0]
+    candidates = tuple(comparison_components._heatmap_pair_cells(pair))
+    attribute_labels = {label for _, group, label, _ in candidates if group == "Node attributes"}
+    assert len(attribute_labels) == len(pair.schema.node_attribute_changes)
+    assert len(attribute_labels) > 1000
+    assert pair.schema.node_attribute_changes[-1].label in attribute_labels
+
+
+def test_compact_schema_groups_keep_status_labels_only_when_needed() -> None:
+    baseline = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    target = parse_graph_metadata(
+        load_fixture("robokopkg.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json"),
+    )
+    schema = comparison_components.compare([baseline, target]).comparisons[0].schema
+    changes = schema.node_id_prefix_changes
+    groups = comparison_components._group_map_changes(changes)
+    assert len(groups) > 1
+    mixed = comparison_components._schema_map_cell(changes, limit=None, compact_headings=True)
+    headings = _find_elements_by_class(mixed, "schema-map-group-heading")
+    assert [heading.children for heading in headings] == [status for status, _ in groups]
+    assert len(_find_elements_by_class(mixed, "schema-map-row")) == len(changes)
+    for _, group in groups:
+        single = comparison_components._schema_map_cell(group, limit=None, compact_headings=True)
+        assert not _find_elements_by_class(single, "schema-map-group-heading")
+        assert len(_find_elements_by_class(single, "schema-map-row")) == len(group)
+
+
+def test_adaptive_inline_and_modal_rendering_boundaries() -> None:
+    baseline = parse_graph_metadata(load_fixture("alliance.graph-metadata.json"))
+    target = parse_graph_metadata(
+        load_fixture("robokopkg.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json"),
+    )
+    result = comparison_components.compare([baseline, target])
+    pair = result.comparisons[0]
+    changes = tuple(
+        change for change in pair.schema.node_attribute_changes if change.status == "added"
+    )
+    for limit in (6, 25):
+        for extra in (1, 2, 3):
+            cell = comparison_components._schema_map_cell(
+                changes[:limit + extra], limit=limit, pair_index=0,
+                category="node_attribute_changes",
+            )
+            rows = _find_elements_by_class(cell, "schema-map-row")
+            buttons = _find_elements_by_class(cell, "schema-more-button")
+            assert len(rows) == (limit + extra if extra <= 2 else limit)
+            if extra <= 2:
+                assert not buttons
+            else:
+                assert buttons[0].children == "View remaining changes (3)"
+    for section, render in (
+        ("node_changes", comparison_components._node_schema_table),
+        ("edge_changes", comparison_components._edge_schema_table),
+    ):
+        for extra in (1, 2, 3):
+            table = render(getattr(pair.schema, section)[:25 + extra], pair_index=0)
+            rows = _find_elements_by_type(table, "Tbody")[0].children
+            assert len(rows) == (25 + extra if extra <= 2 else 25)
+            buttons = [item for item in _find_elements_by_class(table, "schema-more-button")
+                       if item.id["category"] == section]
+            assert bool(buttons) == (extra == 3)
+    for remaining_count in (3, 51, 52, 53, 102):
+        selected_pair = replace(pair, schema=replace(
+            pair.schema, node_attribute_changes=changes[:25 + remaining_count]
+        ))
+        selected_result = replace(result, comparisons=(selected_pair,))
+        details = remaining_schema_changes(selected_result, 0, "node_attribute_changes")
+        content = comparison_components.schema_detail_content(details)
+        header = _find_elements_by_class(content, "schema-dialog-header")[0]
+        buttons = _find_elements_by_type(header, "Button")
+        assert [getattr(item, "aria-label", item.children) for item in buttons] == (
+            ["Close"] if remaining_count <= 52 else
+            ["First page", "Previous page", "Next page", "Last page", "Close"]
+        )
+        expected_rows = remaining_count if remaining_count <= 52 else 50
+        assert len(_find_elements_by_class(content, "schema-map-row")) == expected_rows
+        child_content = comparison_components.schema_detail_content(details, has_parent=True)
+        child_header = _find_elements_by_class(child_content, "schema-dialog-header")[0]
+        child_buttons = _find_elements_by_type(child_header, "Button")
+        assert [getattr(item, "aria-label", item.children) for item in child_buttons] == (
+            ["Back"] if remaining_count <= 52 else
+            ["Back", "First page", "Previous page", "Next page", "Last page"]
+        )
+
+
+@pytest.mark.parametrize("reverse, noun", [(False, "additions"), (True, "removals")])
+def test_schema_dialog_summary_identifies_remaining_status(reverse: bool, noun: str) -> None:
+    graphs = [
+        parse_graph_metadata(load_fixture("alliance.graph-metadata.json")),
+        parse_graph_metadata(
+            load_fixture("robokopkg.graph-metadata.json"),
+            schema_data=load_fixture("robokopkg.schema.json"),
+        ),
+    ]
+    result = comparison_components.compare(graphs[::-1] if reverse else graphs)
+    pair = result.comparisons[0]
+    status = "removed" if reverse else "added"
+    changes = tuple(
+        change for change in pair.schema.node_attribute_changes if change.status == status
+    )
+    for remaining_count in (3, 53):
+        selected_pair = replace(pair, schema=replace(
+            pair.schema, node_attribute_changes=changes[:25 + remaining_count]
+        ))
+        selected = replace(result, comparisons=(selected_pair,))
+        first = remaining_schema_changes(selected, 0, "node_attribute_changes")
+        for page in range(first.page_count):
+            details = remaining_schema_changes(selected, 0, "node_attribute_changes", page)
+            content = comparison_components.schema_detail_content(details)
+            summary = _find_elements_by_class(content, "comparison-table-note")[0].children
+            assert f"remaining {noun}" in summary
+            assert "total changes" in summary
+            assert not _find_elements_by_class(content, "schema-map-group-heading")
+
+
+@pytest.mark.parametrize("limit", [6, 25])
+def test_schema_status_headings_include_changes_beyond_inline_limit(limit: int) -> None:
+    baseline = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    target = parse_graph_metadata(
+        load_fixture("robokopkg.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json"),
+    )
+    schema = comparison_components.compare([baseline, target]).comparisons[0].schema
+    truncated_groups = 0
+    for category in (
+        "node_id_prefix_changes", "node_attribute_changes", "edge_predicate_changes",
+        "edge_source_changes", "edge_attribute_changes",
+    ):
+        changes = getattr(schema, category)
+        cell = comparison_components._schema_map_cell(
+            changes, limit=limit, pair_index=0, category=category,
+        )
+        inline_count = 0
+        for status in {change.status for change in changes}:
+            total = sum(change.status == status for change in changes)
+            visible = adaptive_inline_count(total, limit)
+            inline_count += visible
+            group = _find_elements_by_class(cell, f"schema-map-group-{status}")[0]
+            heading = _find_elements_by_class(group, "schema-map-group-heading")[0]
+            assert heading.children == f"{total:,} {status}"
+            assert len(_find_elements_by_class(group, "schema-map-row")) == visible
+            if visible < total:
+                truncated_groups += 1
+                assert f"Showing {visible:,} of {total:,}" in " ".join(_flatten_text(group))
+            assert visible > 0
+        assert len(_find_elements_by_class(cell, "schema-map-row")) == inline_count
+        if len(changes) > inline_count:
+            button = _find_elements_by_class(cell, "schema-more-button")[0]
+            assert button.children == f"View remaining changes ({len(changes) - inline_count:,})"
+        else:
+            assert not _find_elements_by_class(cell, "schema-more-button")
+    assert truncated_groups > 0
 
 
 def test_heatmap_changed_cell_shows_percent_and_scales_by_shared_changes() -> None:

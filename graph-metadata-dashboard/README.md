@@ -7,10 +7,11 @@ A Dash app for visualizing and comparing [ORION](https://github.com/robokopu24/o
 - Load the latest Biomedical Data Translator knowledge graph metadata files from its [KGX storage release manifest](https://kgx-storage.ci.transltr.io/releases/latest-release-summary.json) for user selection.
 - Load ORION-produced graph metadata from configured trusted URL prefixes.
 - Allow users to upload a local ORION-produced graph metadata JSON file and optional linked schema JSON file.
-- Parse graph metadata through ORION's `KGXGraphMetadata` class.
+- If single graph is selected, parse graph metadata through ORION's `KGXGraphMetadata` class or fall back to parsing specific graph metadata JSON fields if those are not available from ORION's `KGXGraphMetadata` class. 
+- If more than one graph are selected, ORION's `diff_schemas` module will be used to generate a schema difference dictionary between each pair of graph metadata schemas comparing a selected graph against a selected baseline graph.
 - Keep metadata payloads in a server-side cache, scoped by session.
 - Render overview, source and subgraph provenance, node category, and predicate Sankey views when one graph is loaded.
-- Render comparative visualizations when two or more graphs are loaded (to be implemented).
+- Render comparative visualizations when two or more graphs are loaded.
 
 ## Local Development
 

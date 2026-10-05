@@ -7,13 +7,15 @@ description: Exact shapes of ORION's graph-metadata.json and schema.json, parsin
 
 ## Parsing graph-metadata.json — use ORION's own classes
 
-- `KGXGraphMetadata.from_dict(data)` parses a `graph-metadata.json` dict directly. Confirmed safe
+- `KGXGraphMetadata.from_dict()` parses graph metadata after the dashboard's
+  `_orion_metadata_fields()` compatibility normalization. Confirmed safe
   to import and use without `ORION_STORAGE`/`ORION_GRAPHS` env vars set (see "Import-time risk"
   below). It exposes ready-made accessors — `get_release_version()`, `get_build_version()`,
   `get_biolink_version()`, `get_babel_version()`, `get_graph_name()`, `get_build_time()`,
   `get_source_ids()` — use these instead of reading dict/JSON-LD keys directly.
 - `hasPart` entries need a separate step: `KGXGraphMetadata.from_dict()` leaves them as raw dicts.
-  Call `KGXKnowledgeGraphSource.from_dict(entry)` per entry to get typed `node_count`/`edge_count`.
+  Normalize each entry before `KGXKnowledgeGraphSource.from_dict()` to get typed counts/build
+  versions, then map it through `_parse_subgraph()`.
 - `isBasedOn` entries come back as proper `KGXKnowledgeSource` objects already — no extra step
   needed there.
 - **Schema data has no ORION parser either way.** `KGXSchema` (the class that produces
@@ -40,9 +42,11 @@ Real examples fetched from `https://robokop.renci.org/graphs/RobokopKG/<version>
 and its linked `schema.json` informed these — not guesses.
 
 - Top-level dataset fields: `name`, `version`, `dateCreated`, `dateModified`, `license`,
-  `biolinkVersion`, `babelVersion`, `keywords`, `creator`, `funder`.
-- `hasPart`: array of contributing subgraphs, each with `@id`, `name`, `orion:nodeCount`,
-  `orion:edgeCount`. **Counts vary by orders of magnitude** across subgraphs in the same graph
+  `buildVersion`, `biolinkVersion`, `babelVersion`, `keywords`, `creator`, `funder`. Version fields
+  may use `translator:` or `orion:` prefixes as well as legacy bare keys.
+- `hasPart`: array of contributing subgraphs, each with identifiers, names, build versions, and
+  optional `translator:nodeCount` / `translator:edgeCount` (or legacy `orion:`/bare keys).
+  **Counts vary by orders of magnitude** across subgraphs in the same graph
   (observed range: 146 to 4.9M nodes) — any bar chart of these needs a log-scale option.
 - `isBasedOn`: array of underlying data sources, each with `id` (an `infores:` CURIE), `name`,
   `description`, `license`, `attribution`, `citation` (array), `version`. **Some fields are empty
@@ -58,6 +62,20 @@ and its linked `schema.json` informed these — not guesses.
   - Only `graph-metadata.json` is loaded initially; `schema.json` must not be fetched until a
     visualization requiring it is opened. The single-graph overview must render fully and
     gracefully from `graph-metadata.json` alone when schema data is absent or a fetch fails.
+
+## Namespace compatibility and optional subgraph fields
+
+- Pinned ORION 2.0.5 reads the `orion:` forms of build/Biolink/Babel versions and node/edge
+  counts. `_orion_metadata_fields()` copies a document and supplies those aliases, preferring
+  the first non-empty value in `translator:`, `orion:`, then bare-key order. This is a parser
+  compatibility shim, not a rewrite of the original metadata or a semantic change of namespace.
+- Apply normalization at both graph and `hasPart` boundaries. Preserve original raw metadata for
+  downloads and the schema-diff boundary; never scatter namespace fallbacks into callbacks.
+- Subgraph IDs may use `id`, `@id`, or `identifier`. Preserve populated fields when another
+  representation is empty. Counts are optional: preserve zero, retain missing values as `None`,
+  and use the existing numeric/legacy-key fallbacks in `_subgraph_count()`.
+- The internal `SubgraphSource` carries counts and release/build versions. A field populated on
+  only one side is meaningful for comparison, not grounds for hiding all subgraph metadata.
 
 ## schema.json shape (produced by ORION's `generate_schema()` in `orion/kgx_metadata.py`)
 

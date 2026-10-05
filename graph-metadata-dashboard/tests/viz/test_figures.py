@@ -361,6 +361,17 @@ def test_sankey_highlight_colors_handles_node_click_data() -> None:
     assert link_colors[2].endswith(", 0.06)")
     assert link_colors[3].endswith(", 0.06)")
     assert any(color.endswith(", 0.2)") for color in node_colors)
+    customdata = next(
+        value for value in figure.to_dict()["data"][0]["node"]["customdata"]
+        if value[0] == "Predicate: biolink:related_to"
+    )
+    assert sankey_highlight_colors(
+        figure.to_dict(), {"points": [{"customdata": customdata}]},
+    ) == colors
+    for invalid_customdata in (None, [], [None], "Predicate: biolink:related_to"):
+        assert sankey_highlight_colors(
+            figure.to_dict(), {"points": [{"customdata": invalid_customdata}]},
+        ) is None
 
 
 def test_sankey_highlight_colors_ignores_link_click_data() -> None:

@@ -25,6 +25,29 @@ DiskCache to start, behind an interface, with no shared Translator infra to depe
 settled. The required interface, file layout, and session-ID handling above are fully specified,
 not left to implementer discretion.
 
+## Comparison snapshots and detail pages
+
+- `cache/comparison.py` owns comparison caching. Give each rendered comparison an opaque,
+  session-scoped token; never use one mutable "active comparison" slot. Overlapping renders and
+  other tabs must not invalidate a still-displayed comparison or silently change its baseline.
+- Keep the complete `ComparisonResult` for heatmap updates and other full-result consumers.
+  Also store `SchemaChangeSource` projections for the fixed top-level schema categories when
+  creating the snapshot. These exclude unrelated categories and raw ORION export data.
+- Modal callbacks use `load_schema_details()`, not `load_comparison()`. On a cold page, read
+  only its category source (or the parent node/edge source for nested details), then use the pure
+  `diff/details.py` helpers. Cache the resulting typed page lazily; subsequent visits read that
+  page directly. Do not eagerly render/cache all pages or add process-global metadata caches.
+- Write the small snapshot index before its payloads. Every detail-page read checks this index;
+  pages written later must not remain usable after the snapshot expires. Use the backend's
+  existing TTL policy without refreshing snapshot expiry during navigation. Missing/expired
+  data should show the reload message, never another comparison's data.
+- Keep sorting, adaptive cutoffs, and page slicing in `diff/`, and Dash rendering in components.
+  Only token, category/pair/page selection, and parent-navigation history belong in browser
+  stores; cached metadata and page payloads remain server-side.
+- Test cold reads, page reuse, session isolation, overlapping snapshots, expiry, and missing
+  category sources through `MetadataCache`. Include DiskCache serialization coverage and verify
+  that modal navigation never reloads the complete multi-graph comparison.
+
 ## Deployment note
 
 If `diskcache` is in use, its storage path must be a container-writable directory (ideally

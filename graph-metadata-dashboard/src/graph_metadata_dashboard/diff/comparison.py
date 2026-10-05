@@ -194,7 +194,7 @@ def compare(
     graphs: Sequence[ParsedGraphMetadata],
     *,
     labels: Sequence[str] | None = None,
-    top_n: int = TOP_SCHEMA_DIFFS,
+    top_n: int | None = None,
 ) -> ComparisonResult:
     """Compare selected graphs using the first graph as the baseline."""
     if len(graphs) < 2:
@@ -246,7 +246,7 @@ def _compare_pair(
     *,
     baseline: GraphSummary,
     target: GraphSummary,
-    top_n: int,
+    top_n: int | None,
 ) -> GraphComparison:
     return GraphComparison(
         baseline=baseline,
@@ -660,7 +660,7 @@ def _schema_diff_summary(
     old_graph: ParsedGraphMetadata,
     new_graph: ParsedGraphMetadata,
     *,
-    top_n: int,
+    top_n: int | None,
 ) -> SchemaDiffSummary:
     old_document = _orion_schema_diff_document(old_graph)
     new_document = _orion_schema_diff_document(new_graph)
@@ -745,7 +745,7 @@ def _orion_schema_diff_document(graph: ParsedGraphMetadata) -> JsonObject | None
     return document
 
 
-def _node_type_changes(value: Any, *, top_n: int) -> tuple[TypeCountChange, ...]:
+def _node_type_changes(value: Any, *, top_n: int | None) -> tuple[TypeCountChange, ...]:
     rows = []
     for entry in _sequence_of_mappings(value):
         rows.append(
@@ -758,7 +758,7 @@ def _node_type_changes(value: Any, *, top_n: int) -> tuple[TypeCountChange, ...]
     return tuple(_top_count_changes(rows, top_n=top_n))
 
 
-def _edge_type_changes(value: Any, *, top_n: int) -> tuple[EdgeTypeCountChange, ...]:
+def _edge_type_changes(value: Any, *, top_n: int | None) -> tuple[EdgeTypeCountChange, ...]:
     rows = []
     for entry in _sequence_of_mappings(value):
         rows.append(
@@ -773,21 +773,21 @@ def _edge_type_changes(value: Any, *, top_n: int) -> tuple[EdgeTypeCountChange, 
     return tuple(_top_count_changes(rows, top_n=top_n))
 
 
-def _node_schema_changes(value: Any, *, top_n: int) -> tuple[NodeSchemaChange, ...]:
+def _node_schema_changes(value: Any, *, top_n: int | None) -> tuple[NodeSchemaChange, ...]:
     rows = [
         NodeSchemaChange(
             label=_node_entry_label(entry),
             status=str(entry.get("status") or "changed"),
             count=_count_delta_from_diff(entry.get("count")),
-            id_prefix_changes=_limited_map_changes(entry.get("id_prefixes")),
-            attribute_changes=_limited_map_changes(entry.get("attributes")),
+            id_prefix_changes=_sorted_map_changes(entry.get("id_prefixes")),
+            attribute_changes=_sorted_map_changes(entry.get("attributes")),
         )
         for entry in _sequence_of_mappings(value)
     ]
     return tuple(_top_schema_rows(rows, top_n=top_n))
 
 
-def _edge_schema_changes(value: Any, *, top_n: int) -> tuple[EdgeSchemaChange, ...]:
+def _edge_schema_changes(value: Any, *, top_n: int | None) -> tuple[EdgeSchemaChange, ...]:
     rows = [
         EdgeSchemaChange(
             subject_category=_category_label(entry.get("subject_category")),
@@ -795,22 +795,22 @@ def _edge_schema_changes(value: Any, *, top_n: int) -> tuple[EdgeSchemaChange, .
             object_category=_category_label(entry.get("object_category")),
             status=str(entry.get("status") or "changed"),
             count=_count_delta_from_diff(entry.get("count")),
-            primary_source_changes=_limited_map_changes(entry.get("primary_knowledge_sources")),
-            qualifier_changes=_limited_map_changes(entry.get("qualifiers")),
-            attribute_changes=_limited_map_changes(entry.get("attributes")),
-            subject_id_prefix_changes=_limited_map_changes(entry.get("subject_id_prefixes")),
-            object_id_prefix_changes=_limited_map_changes(entry.get("object_id_prefixes")),
+            primary_source_changes=_sorted_map_changes(entry.get("primary_knowledge_sources")),
+            qualifier_changes=_sorted_map_changes(entry.get("qualifiers")),
+            attribute_changes=_sorted_map_changes(entry.get("attributes")),
+            subject_id_prefix_changes=_sorted_map_changes(entry.get("subject_id_prefixes")),
+            object_id_prefix_changes=_sorted_map_changes(entry.get("object_id_prefixes")),
         )
         for entry in _sequence_of_mappings(value)
     ]
     return tuple(_top_schema_rows(rows, top_n=top_n))
 
 
-def _limited_map_changes(value: Any) -> tuple[MapEntryChange, ...]:
+def _sorted_map_changes(value: Any) -> tuple[MapEntryChange, ...]:
     return tuple(
         _top_map_changes(
             _map_change_entries(value),
-            top_n=TOP_SCHEMA_ROW_MAP_DIFFS,
+            top_n=None,
         )
     )
 
@@ -818,7 +818,7 @@ def _limited_map_changes(value: Any) -> tuple[MapEntryChange, ...]:
 def _top_schema_rows(
     rows: Sequence[NodeSchemaChange] | Sequence[EdgeSchemaChange],
     *,
-    top_n: int,
+    top_n: int | None,
 ) -> Sequence[NodeSchemaChange] | Sequence[EdgeSchemaChange]:
     return sorted(rows, key=_schema_row_impact, reverse=True)[:top_n]
 
@@ -842,12 +842,12 @@ def _schema_row_impact(row: NodeSchemaChange | EdgeSchemaChange) -> int:
 def _top_count_changes(
     rows: Sequence[TypeCountChange] | Sequence[EdgeTypeCountChange],
     *,
-    top_n: int,
+    top_n: int | None,
 ) -> Sequence[TypeCountChange] | Sequence[EdgeTypeCountChange]:
     return sorted(rows, key=lambda row: abs(row.count.delta or 0), reverse=True)[:top_n]
 
 
-def _map_changes(value: Any, *, top_n: int) -> tuple[MapEntryChange, ...]:
+def _map_changes(value: Any, *, top_n: int | None) -> tuple[MapEntryChange, ...]:
     return tuple(_top_map_changes(_map_change_entries(value), top_n=top_n))
 
 
@@ -856,7 +856,7 @@ def _entry_map_changes(
     *,
     context_func: Callable[[Mapping[str, Any]], str],
     fields: Sequence[tuple[str, str]],
-    top_n: int,
+    top_n: int | None,
 ) -> tuple[MapEntryChange, ...]:
     rows: list[MapEntryChange] = []
     for entry in _sequence_of_mappings(entries):
@@ -871,7 +871,7 @@ def _entry_map_changes(
     return tuple(_top_map_changes(rows, top_n=top_n))
 
 
-def _source_predicate_changes(value: Any, *, top_n: int) -> tuple[MapEntryChange, ...]:
+def _source_predicate_changes(value: Any, *, top_n: int | None) -> tuple[MapEntryChange, ...]:
     diff = _mapping(value)
     rows: list[MapEntryChange] = []
     for source, predicates in _mapping(diff.get("added")).items():
@@ -960,7 +960,7 @@ def _entry_count_delta(count: int, *, status: str) -> CountDelta:
 def _top_map_changes(
     rows: Sequence[MapEntryChange],
     *,
-    top_n: int,
+    top_n: int | None,
 ) -> list[MapEntryChange]:
     return sorted(rows, key=lambda row: abs(row.count.delta or 0), reverse=True)[:top_n]
 

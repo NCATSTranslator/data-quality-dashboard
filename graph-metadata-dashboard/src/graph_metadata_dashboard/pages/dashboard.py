@@ -8,9 +8,11 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from dash import (
+    ALL,
     Dash,
     Input,
     Output,
+    Patch,
     State,
     callback_context,
     dash_table,
@@ -22,10 +24,17 @@ from dash import (
 from dash.exceptions import PreventUpdate
 
 from graph_metadata_dashboard.cache import MetadataCache
+from graph_metadata_dashboard.cache.comparison import (
+    load_comparison,
+    load_schema_details,
+    store_comparison,
+)
 from graph_metadata_dashboard.components.comparison import (
     comparison_dashboard,
     comparison_heatmap_table,
     comparison_html_report,
+    schema_detail_content,
+    schema_detail_layout,
 )
 from graph_metadata_dashboard.components.single_graph import (
     provenance_contribution,
@@ -737,27 +746,49 @@ def register_callbacks(
     @app.callback(
         Output("comparison-heatmap-content", "children"),
         Input("heatmap-row-limit", "value"),
-        State("loaded-graph-state", "data"),
-        State("comparison-baseline-selector", "value"),
+        State("comparison-result-token", "data"),
         State("session-id", "data"),
         prevent_initial_call=True,
     )
     def update_comparison_heatmap(
         row_limit: int | float | None,
-        graph_states: list[GraphState] | GraphState | None,
-        baseline_cache_key: str | None,
+        result_token: str | None,
         session_id: str | None,
     ) -> Any:
-        states = _normalize_graph_states(graph_states)
-        if not session_id or len(states) < 2:
-            raise PreventUpdate
-        parsed_graphs, labels, _ = _comparison_inputs(
-            cache, kgx_client, url_client, session_id, states, baseline_cache_key
-        )
-        if len(parsed_graphs) < 2:
-            raise PreventUpdate
-        result = compare(parsed_graphs, labels=labels)
+        result = load_comparison(cache, session_id, result_token)
+        if result is None:
+            return html.P("Comparison expired or changed. Reload the comparison to continue.")
         return comparison_heatmap_table(result.comparisons, row_limit=row_limit)
+
+    @app.callback(
+        Output("schema-detail-content", "children"),
+        Output("schema-detail-selection", "data"),
+        Input({"type": "schema-more", "pair": ALL, "category": ALL}, "n_clicks"),
+        Input({"type": "schema-page", "direction": ALL, "level": ALL}, "n_clicks"),
+        State("schema-detail-selection", "data"),
+        State("comparison-result-token", "data"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def update_schema_details(
+        more_clicks: list[int], page_clicks: list[int], selection: dict[str, Any] | None,
+        result_token: str | None, session_id: str | None,
+    ) -> tuple[object, object]:
+        del more_clicks, page_clicks
+        if not callback_context.triggered or not callback_context.triggered[0].get("value"):
+            raise PreventUpdate
+        trigger = callback_context.triggered_id
+        if isinstance(trigger, dict) and trigger.get("type") == "schema-more" and (
+            type(trigger.get("pair")) is not int or not isinstance(trigger.get("category"), str)
+        ):
+            raise PreventUpdate
+        if isinstance(trigger, dict) and trigger.get("type") == "schema-page" and (
+            trigger.get("direction") not in ("first", "previous", "next", "last", "back")
+        ):
+            raise PreventUpdate
+        return _schema_detail_response(
+            cache, session_id, result_token, trigger, selection
+        )
 
     @app.callback(
         Output("schema-diff-download", "data"),
@@ -1901,7 +1932,105 @@ def _comparison_dashboard(
         graph_states,
         baseline_cache_key,
     )
-    return comparison_dashboard(parsed_graphs, labels, load_errors)
+    if not session_id or len(parsed_graphs) < 2:
+        return comparison_dashboard(parsed_graphs, labels, load_errors)
+    result = compare(parsed_graphs, labels=labels)
+    token = store_comparison(cache, session_id, result)
+    return comparison_dashboard(
+        parsed_graphs, labels, load_errors, result=result, result_token=token
+    )
+
+
+def _schema_detail_response(
+    cache: MetadataCache, session_id: str | None, result_token: str | None,
+    trigger: str | dict[str, Any] | None,
+    selection: dict[str, Any] | None,
+) -> tuple[object, object]:
+    if not isinstance(trigger, dict):
+        raise PreventUpdate
+    parents: list[dict[str, Any]] = []
+    if trigger.get("type") == "schema-more":
+        request = {"pair": trigger.get("pair"), "category": trigger.get("category"), "page": 0}
+        if (
+            selection and selection.get("token") == result_token
+            and selection.get("pair") == request["pair"]
+            and selection.get("category") in ("node_changes", "edge_changes")
+            and isinstance(request["category"], str)
+        ):
+            parts = request["category"].split("/")
+            if len(parts) == 3 and parts[0] == selection["category"] and parts[1].isdigit():
+                try:
+                    parent = load_schema_details(
+                        cache, session_id, result_token,
+                        selection["pair"], selection["category"], selection.get("page", 0)
+                    )
+                except ValueError:
+                    parent = None
+                if parent is not None:
+                    start = parent.inline_count + parent.start_index
+                    if start <= int(parts[1]) < start + len(parent.changes):
+                        parents = [*selection.get("parents", []), {
+                            "pair": parent.pair_index, "category": parent.category,
+                            "page": parent.page_index,
+                        }]
+    elif trigger.get("type") == "schema-page" and selection:
+        if (
+            selection.get("token") != result_token or type(selection.get("page")) is not int
+            or trigger.get("direction") not in ("first", "previous", "next", "last", "back")
+            or trigger.get("level", int(bool(selection.get("parents"))))
+            != int(bool(selection.get("parents")))
+        ):
+            raise PreventUpdate
+        parents = list(selection.get("parents", []))
+        if trigger["direction"] == "back":
+            if not parents:
+                raise PreventUpdate
+            request = parents.pop()
+        else:
+            request = dict(selection)
+            if trigger["direction"] == "first":
+                request["page"] = 0
+            elif trigger["direction"] in ("previous", "next"):
+                request["page"] += 1 if trigger["direction"] == "next" else -1
+    else:
+        raise PreventUpdate
+    try:
+        details = load_schema_details(
+            cache, session_id, result_token,
+            request.get("pair"), request.get("category"), request["page"]
+        )
+        if (
+            details is not None and trigger.get("type") == "schema-page"
+            and trigger.get("direction") == "last"
+        ):
+            details = load_schema_details(
+                cache, session_id, result_token,
+                details.pair_index, details.category, details.page_count - 1
+            )
+    except ValueError:
+        return schema_detail_layout("Remaining schema changes", [
+            html.P("The requested schema category is unavailable."),
+        ]), None
+    if details is None:
+        return schema_detail_layout("Remaining schema changes", [
+            html.P("Comparison expired or changed. Reload the comparison to continue."),
+        ]), None
+    content: object
+    if trigger.get("type") == "schema-page" and trigger.get("direction") == "back":
+        content = Patch()
+        content[0]["props"]["style"] = {}
+        content[1]["props"]["children"] = None
+    elif parents:
+        content = Patch()
+        content[0]["props"]["style"] = {"display": "none"}
+        content[1]["props"]["children"] = schema_detail_content(details, has_parent=True)
+    else:
+        content = [html.Div(schema_detail_content(details), style={}), html.Div()]
+    return content, {
+        "token": result_token, "pair": details.pair_index,
+        "category": details.category, "page": details.page_index,
+        "parents": parents,
+    }
 
 
 def _schema_diff_download_data(

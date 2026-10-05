@@ -29,3 +29,5 @@ def test_comparison_dialog_script_is_served() -> None:
 
     assert response.status_code == 200
     assert b"data-dialog-target" in response.data
+    assert b"data-dialog-back" in response.data
+    assert b'addEventListener("cancel"' in response.data

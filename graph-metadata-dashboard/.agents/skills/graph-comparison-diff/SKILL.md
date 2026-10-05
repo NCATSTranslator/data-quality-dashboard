@@ -58,8 +58,8 @@ non-interactive: a shareable snapshot of the overview, heatmap, and schema summa
 ## N-way (2+ graphs) strategy
 
 For two selected graphs, compare graph A to graph B directly. **For three or more**, use a simple,
-understandable pattern rather than a dense all-pairs diff: either use the first selected graph as
-the baseline and compare every other selected graph to it, or render matrix-style summary tables
+understandable baseline comparison rather than a dense all-pairs diff: use the first selected
+graph by default, honor the baseline selector, and compare every other graph against it. Use tables
 for totals/source presence/category counts. Avoid rendering all edge triples or all attribute keys
 without top-N, search, pagination, or drill-down — the ROBOKOP-scale cardinality caution from the
 `single-graph-visualizations` skill applies here too, compounded across N graphs.
@@ -100,6 +100,47 @@ with one shared change score for all statuses: relative change fraction (`abs(de
 new)`) times a square-root-scaled absolute-delta ratio. This keeps added/removed rows comparable
 with changed rows without displaying fake 100% values. Display ORION percentage values for changed
 counts only. Do not render visual intensity for zero or missing changes.
+
+## Interactive comparison details (resolved)
+
+- Keep the complete typed schema changes in `ComparisonResult`. Do not apply upstream top-25
+  truncation: the heatmap and remaining-changes dialogs need candidates beyond the inline lists.
+  Heatmap Top items defaults to 20, accepts 1–100, and applies on Enter or blur with a visible hint.
+  Preserve the global-first, pair-balanced ranking described above.
+- The Comparison Overview puts the chosen baseline first and marks it with bold black
+  `(baseline)`. Sources and Subgraphs both open Show changes dialogs: group by Status and show
+  Changed Fields for modified records, not as a substitute for Added/Removed status. Preserve
+  readable wrapping in both metadata columns. Do not restore the isolated gray subgraph-count
+  bar, the redundant inline subgraph source table, or the subgraph filter row.
+- Subgraph metadata includes node/edge counts when supplied; missing is not zero. A count present
+  in only one graph is a changed field. Keep metadata parsing in the parser adapter.
+- `diff/details.py` owns adaptive selection and pagination. Node-category and edge-triple tables
+  show 25 rows; summary maps show 25 per status, and nested maps show six per status. Absorb one
+  or two extra items rather than adding a button just for those items. Apply limits independently
+  to Added/Removed/Changed, keeping small groups visible. Headings count the complete group;
+  View remaining changes counts exactly the excluded items.
+- Do not render all remaining records in a scrolling modal: thousands of entries froze the UI.
+  Load only the requested category/page. Pages normally contain 50 items, with a final remainder
+  of one or two folded into the preceding page (52 fits one page; 53 becomes 50+3; 102 is 50+52).
+  Hide pagination for one-page results. First/Previous/Next/Last use icons with tooltips and
+  accessible names; disable navigation at the corresponding boundaries.
+- Keep category, graph pair, and controls in a compact header. Use remaining additions/removals
+  when the complete remaining set has one such status; mixed sets retain status labels, even
+  when one page happens to contain only one status. Avoid redundant single-status count headings.
+- Nested details reuse one shared native dialog and a small parent-history stack. Back/Escape
+  restore the parent category and page. Show Close only at the outermost level. A new root
+  selection clears history; do not mistake inline row buttons for modal-child navigation.
+  Keep the single bounded parent page mounted but hidden while its child is open. Dash partial
+  updates replace only the child slot; Back clears that slot and reveals the parent without
+  rebuilding or resending its table. Still validate snapshot expiry on Back. Scope pager IDs
+  by level so retained parent and child controls cannot collide, and ignore inactive-level
+  navigation. Replace both slots on root navigation/error; do not accumulate visited pages or
+  place rendered payloads in browser stores.
+- Modal callbacks use `cache/comparison.py`'s category/page cache, not full-snapshot reloads or
+  new ORION diffs (see `caching-layer`). Keep only identifiers/navigation state in `dcc.Store`.
+  Preserve the complete raw ORION JSON download and the bounded static HTML report.
+- Regressions should cover real small/merged/ROBOKOP data, adaptive boundaries, exact counts,
+  first/last navigation, parent restoration, and bounded rendering/cache reads for large results.
 
 ## UI wiring
 
