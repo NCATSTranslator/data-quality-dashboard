@@ -578,6 +578,17 @@ body {
   font-size: 0.72rem;
 }
 
+.heatmap-row-limit-error {
+  display: none;
+  max-width: 14rem;
+  color: #b91c1c;
+  font-size: 0.72rem;
+}
+
+.heatmap-row-limit-control input:invalid ~ .heatmap-row-limit-error {
+  display: block;
+}
+
 .heatmap-legend-heading {
   color: var(--muted);
   font-size: 0.76rem;

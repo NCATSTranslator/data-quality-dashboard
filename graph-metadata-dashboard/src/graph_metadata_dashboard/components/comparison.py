@@ -638,7 +638,8 @@ def _comparison_heatmap(comparisons: tuple[GraphComparison, ...]) -> html.Div | 
                 "Show the largest changes across graph totals, source metadata, "
                 "node categories, edge triples, and overall schema. Cell color uses one "
                 "sequential scale for normalized changes across all rows. "
-                "Enter the number of changes to show in TOP ITEMS (20 by default).",
+                "Enter the number of changes to show in TOP ITEMS "
+                f"({HEATMAP_ROW_LIMIT} by default; maximum {HEATMAP_MAX_ROW_LIMIT}).",
                 className="comparison-table-note",
             ),
             _heatmap_legend(),
@@ -1070,6 +1071,11 @@ def _heatmap_legend() -> html.Div:
                     html.Small(
                         "Press Enter or click outside to apply.",
                         className="heatmap-row-limit-hint",
+                    ),
+                    html.Small(
+                        f"Enter a whole number from 1 to {HEATMAP_MAX_ROW_LIMIT}.",
+                        className="heatmap-row-limit-error",
+                        role="alert",
                     ),
                 ],
             ),

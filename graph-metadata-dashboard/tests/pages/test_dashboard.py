@@ -873,6 +873,10 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     limit_control = _find_elements_by_class(legend, "heatmap-row-limit-control")[0]
     hint = _find_elements_by_class(limit_control, "heatmap-row-limit-hint")[0]
     assert hint.children == "Press Enter or click outside to apply."
+    assert "TOP ITEMS (20 by default; maximum 100)." in text
+    error = _find_elements_by_class(limit_control, "heatmap-row-limit-error")[0]
+    assert error.children == "Enter a whole number from 1 to 100."
+    assert error.role == "alert"
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
     assert "Edge type" in text
