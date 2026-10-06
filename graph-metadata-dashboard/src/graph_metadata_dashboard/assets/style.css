@@ -890,6 +890,14 @@ body {
   min-width: 0;
 }
 
+.schema-summary-type-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 0.7rem;
+  align-items: start;
+  min-width: 0;
+}
+
 .schema-summary-card {
   display: grid;
   gap: 0.55rem;

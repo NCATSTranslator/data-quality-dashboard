@@ -124,6 +124,12 @@ counts only. Do not render visual intensity for zero or missing changes.
   of one or two folded into the preceding page (52 fits one page; 53 becomes 50+3; 102 is 50+52).
   Hide pagination for one-page results. First/Previous/Next/Last use icons with tooltips and
   accessible names; disable navigation at the corresponding boundaries.
+- Aggregate summary cards use largest-first placement into three estimated-height columns.
+  Estimate map-card height from the actual per-status adaptive inline rows, plus heading and
+  remaining-button overhead, not a single capped total of 25. Keep Node Type and Edge Type
+  together at the bottom of the lightest populated column; their small responsive grid places
+  them side by side when they fit and stacks them otherwise. Preserve No changes cards. This
+  is a lightweight estimate, not browser-measured packing; text wrapping can still leave gaps.
 - Keep category, graph pair, and controls in a compact header. Use remaining additions/removals
   when the complete remaining set has one such status; mixed sets retain status labels, even
   when one page happens to contain only one status. Avoid redundant single-status count headings.

@@ -1025,6 +1025,68 @@ def test_schema_difference_panels_hide_added_removed_percentages() -> None:
     )[0].title
 
 
+@pytest.mark.parametrize("baseline_name,target_name", [
+    ("alliance", "translator_kg_open"),
+    ("alliance", "robokopkg"),
+    ("translator_kg_open", "robokopkg"),
+])
+def test_schema_summary_keeps_type_cards_together_in_lightest_column(
+    baseline_name: str, target_name: str,
+) -> None:
+    graphs = [parse_graph_metadata(
+        load_fixture(f"{name}.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json") if name == "robokopkg" else None,
+    ) for name in (baseline_name, target_name)]
+    schema = comparison_components.compare(graphs).comparisons[0].schema
+    summary = comparison_components._schema_summary_table(schema, pair_index=0)
+    columns = _find_elements_by_class(summary, "schema-summary-card-column")
+    type_group = _find_elements_by_class(summary, "schema-summary-type-group")[0]
+    assert [card.children[0].children for card in type_group.children] == ["Node type", "Edge type"]
+    weights = []
+    for column in columns:
+        cards = [card for card in column.children if card is not type_group]
+        weights.append(sum(
+            3 + len(_find_elements_by_class(card, "schema-map-row"))
+            + 2 * len(_find_elements_by_class(card, "schema-map-group-heading"))
+            + 2 * len(_find_elements_by_class(card, "schema-more-button"))
+            for card in cards
+        ))
+    lightest = min(range(len(columns)), key=lambda index: weights[index])
+    assert columns[lightest].children[-1] is type_group
+    titles = [card.children[0].children
+              for card in _find_elements_by_class(summary, "schema-summary-card")]
+    assert len(titles) == len(set(titles))
+
+    map_fields = (
+        "node_id_prefix_changes", "node_attribute_changes", "edge_predicate_changes",
+        "edge_source_changes", "edge_source_predicate_changes", "edge_qualifier_changes",
+        "edge_attribute_changes",
+    )
+    populated = [field for field in map_fields if getattr(schema, field)]
+    for map_count in (0, 1, 2):
+        reduced = replace(schema, **{
+            field: () for field in map_fields if field not in populated[:map_count]
+        })
+        reduced_summary = comparison_components._schema_summary_table(reduced, pair_index=0)
+        assert len(_find_elements_by_class(
+            reduced_summary, "schema-summary-card-column",
+        )) == 3
+        assert len(_find_elements_by_class(reduced_summary, "schema-summary-type-group")) == 1
+        assert len(_find_elements_by_class(
+            reduced_summary, "schema-summary-card",
+        )) == len(map_fields) + 2
+        assert _flatten_text(reduced_summary).count("No changes") == len(map_fields) - map_count
+    single_type = replace(reduced, node_type_count=None)
+    single_summary = comparison_components._schema_summary_table(single_type)
+    single_group = _find_elements_by_class(single_summary, "schema-summary-type-group")[0]
+    assert [card.children[0].children for card in single_group.children] == ["Edge type"]
+    empty = replace(schema, node_type_count=None, edge_type_count=None,
+                    **dict.fromkeys(map_fields, ()))
+    empty_summary = comparison_components._schema_summary_table(empty)
+    assert not _find_elements_by_class(empty_summary, "schema-summary-type-group")
+    assert _flatten_text(empty_summary).count("No changes") == len(map_fields)
+
+
 def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

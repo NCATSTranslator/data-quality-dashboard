@@ -1424,92 +1424,35 @@ def _schema_entry_tables(schema: SchemaDiffSummary, *, pair_index: int | None = 
 
 
 def _schema_summary_table(schema: SchemaDiffSummary, *, pair_index: int | None = None) -> html.Div:
-    card_specs = [
-        (
-            _schema_type_weight(schema.node_type_count),
-            _schema_summary_card("Node type", _schema_type_cell(schema.node_type_count)),
-        ),
-        (
-            _schema_type_weight(schema.edge_type_count),
-            _schema_summary_card("Edge type", _schema_type_cell(schema.edge_type_count)),
-        ),
-        (
-            min(len(schema.node_id_prefix_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Node ID prefixes",
-                _schema_map_cell(
-                    schema.node_id_prefix_changes, pair_index=pair_index,
-                    category="node_id_prefix_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.node_attribute_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Node attributes",
-                _schema_map_cell(
-                    schema.node_attribute_changes, pair_index=pair_index,
-                    category="node_attribute_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.edge_predicate_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Edge predicates",
-                _schema_map_cell(
-                    schema.edge_predicate_changes, pair_index=pair_index,
-                    category="edge_predicate_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.edge_source_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Edge primary sources",
-                _schema_map_cell(
-                    schema.edge_source_changes, pair_index=pair_index,
-                    category="edge_source_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.edge_source_predicate_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Edge source-predicate composition",
-                _schema_map_cell(
-                    schema.edge_source_predicate_changes, pair_index=pair_index,
-                    category="edge_source_predicate_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.edge_qualifier_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Edge qualifiers",
-                _schema_map_cell(
-                    schema.edge_qualifier_changes, pair_index=pair_index,
-                    category="edge_qualifier_changes",
-                ),
-            ),
-        ),
-        (
-            min(len(schema.edge_attribute_changes), TOP_SCHEMA_DIFFS),
-            _schema_summary_card(
-                "Edge attributes",
-                _schema_map_cell(
-                    schema.edge_attribute_changes, pair_index=pair_index,
-                    category="edge_attribute_changes",
-                ),
-            ),
-        ),
+    map_specs = [
+        ("Node ID prefixes", "node_id_prefix_changes", schema.node_id_prefix_changes),
+        ("Node attributes", "node_attribute_changes", schema.node_attribute_changes),
+        ("Edge predicates", "edge_predicate_changes", schema.edge_predicate_changes),
+        ("Edge primary sources", "edge_source_changes", schema.edge_source_changes),
+        ("Edge source-predicate composition", "edge_source_predicate_changes",
+         schema.edge_source_predicate_changes),
+        ("Edge qualifiers", "edge_qualifier_changes", schema.edge_qualifier_changes),
+        ("Edge attributes", "edge_attribute_changes", schema.edge_attribute_changes),
     ]
-    weighted_cards = sorted(
-        (item for item in card_specs if item[1] is not None),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    if not weighted_cards:
+    weighted_cards: list[tuple[int, html.Div]] = []
+    for title, category, changes in map_specs:
+        card = _schema_summary_card(
+            title, _schema_map_cell(changes, pair_index=pair_index, category=category),
+        )
+        if card is not None:
+            visible, remaining = split_map_changes(changes, TOP_SCHEMA_DIFFS)
+            group_count = len({change.status for change in visible})
+            weight = 3 + len(visible) + 2 * group_count
+            if remaining and pair_index is not None:
+                weight += 2
+            weighted_cards.append((weight, card))
+    weighted_cards.sort(key=lambda item: item[0], reverse=True)
+    type_cards = [
+        card for title, counts in (("Node type", schema.node_type_count),
+                                   ("Edge type", schema.edge_type_count))
+        if (card := _schema_summary_card(title, _schema_type_cell(counts))) is not None
+    ]
+    if not weighted_cards and not type_cards:
         return html.Div(
             className="comparison-section empty-inline",
             children=[
@@ -1522,7 +1465,13 @@ def _schema_summary_table(schema: SchemaDiffSummary, *, pair_index: int | None =
     for weight, card in weighted_cards:
         column_index = min(range(len(columns)), key=lambda index: column_weights[index])
         columns[column_index].append(card)
-        column_weights[column_index] += max(weight, 1)
+        column_weights[column_index] += weight
+    if type_cards:
+        populated_columns = [index for index, column in enumerate(columns) if column]
+        column_index = min(populated_columns or [0], key=lambda index: column_weights[index])
+        columns[column_index].append(html.Div(
+            className="schema-summary-type-group", children=type_cards,
+        ))
     card_columns = [
         html.Div(className="schema-summary-card-column", children=column)
         for column in columns
@@ -1559,16 +1508,6 @@ def _schema_summary_card(
             html.H5(title),
             content,
         ],
-    )
-
-
-def _schema_type_weight(type_count: dict[str, int] | None) -> int:
-    if not type_count:
-        return 0
-    return sum(
-        1
-        for key in ("added", "removed", "changed", "unchanged")
-        if type_count.get(key, 0)
     )
 
 
