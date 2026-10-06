@@ -21,7 +21,7 @@ defaults:
 jobs:
   checks:
     name: Ruff and pytest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
