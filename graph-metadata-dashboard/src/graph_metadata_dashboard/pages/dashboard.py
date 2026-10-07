@@ -37,6 +37,7 @@ from graph_metadata_dashboard.components.comparison import (
     schema_detail_layout,
 )
 from graph_metadata_dashboard.components.single_graph import (
+    contribution_figure,
     provenance_contribution,
     upload_selection_status,
     url_selection_status,
@@ -852,6 +853,26 @@ def register_callbacks(
         if parsed is None:
             return ""
         return _provenance(parsed)
+
+    @app.callback(
+        Output("contribution-chart", "figure"),
+        Output("contribution-chart", "style"),
+        Input("subgraph-contribution-metric", "value"),
+        State("loaded-graph-state", "data"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def update_subgraph_contribution(
+        metric: str | None,
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> Any:
+        graph_state = _single_graph_state(_normalize_graph_states(graph_states))
+        parsed = _get_cached_graph(cache, session_id, graph_state)
+        if parsed is None:
+            raise PreventUpdate
+        figure = contribution_figure(parsed, metric)
+        return figure, contribution_chart_style(figure)
 
     @app.callback(
         Output("node-categories-panel", "children"),

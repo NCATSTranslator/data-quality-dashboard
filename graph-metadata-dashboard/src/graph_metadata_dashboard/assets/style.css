@@ -1358,3 +1358,37 @@ body {
   min-width: 0;
   overflow-x: auto;
 }
+
+.contribution-panel-with-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.contribution-panel-with-metric > .contribution-chart {
+  grid-area: 1 / 1;
+}
+
+.contribution-metric-toggle {
+  grid-area: 1 / 1;
+  justify-self: center;
+  align-self: start;
+  position: sticky;
+  left: calc(50% - 70px);
+  right: calc(50% - 70px);
+  z-index: 1;
+  width: fit-content;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  background: white;
+}
+
+.contribution-metric-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.contribution-metric-toggle label + label {
+  margin-left: 16px;
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from dash import dcc, html
+from plotly.graph_objects import Figure
 
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata, SubgraphSource
 from graph_metadata_dashboard.viz.figures import contribution_chart_style, subgraph_contribution_bar
@@ -16,7 +17,10 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
             return _single_subgraph_statement(parsed.subgraphs[0])
         if has_node_counts:
             return html.Div(
-                className="contribution-panel",
+                className=(
+                    "contribution-panel contribution-panel-with-metric"
+                    if has_edge_counts else "contribution-panel"
+                ),
                 children=_contribution_chart(parsed),
             )
         if has_edge_counts:
@@ -98,18 +102,44 @@ def contribution_sources(
     return sources, "edge_count", "Primary knowledge source"
 
 
-def _contribution_chart(parsed: ParsedGraphMetadata) -> list[dcc.Graph]:
-    sources, metric, label = contribution_sources(parsed)
-    figure = subgraph_contribution_bar(
-        sources, metric=metric, contribution_label=label,
+def contribution_figure(
+    parsed: ParsedGraphMetadata, metric: str | None = None,
+) -> Figure:
+    sources, default_metric, label = contribution_sources(parsed)
+    selected_metric = metric if metric in {"node_count", "edge_count"} else default_metric
+    if not any(getattr(source, selected_metric) is not None for source in sources):
+        selected_metric = default_metric
+    return subgraph_contribution_bar(
+        sources, metric=selected_metric, contribution_label=label,
     )
-    return [
+
+
+def _contribution_chart(parsed: ParsedGraphMetadata) -> list[Any]:
+    sources, metric, label = contribution_sources(parsed)
+    figure = contribution_figure(parsed)
+    children: list[Any] = []
+    if label == "Subgraph" and all(
+        any(getattr(source, count_metric) is not None for source in sources)
+        for count_metric in ("node_count", "edge_count")
+    ):
+        children.append(dcc.RadioItems(
+            id="subgraph-contribution-metric",
+            options=[
+                {"label": "Nodes", "value": "node_count"},
+                {"label": "Edges", "value": "edge_count"},
+            ],
+            value=metric,
+            inline=True,
+            className="contribution-metric-toggle",
+        ))
+    children.append(
         dcc.Graph(
             id="contribution-chart", figure=figure, responsive=True,
             style=contribution_chart_style(figure),
             className="contribution-chart",
-        ),
-    ]
+        )
+    )
+    return children
 
 
 def _single_subgraph_statement(subgraph: SubgraphSource) -> html.Div:

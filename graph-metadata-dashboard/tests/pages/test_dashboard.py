@@ -16,6 +16,7 @@ from graph_metadata_dashboard.cache.comparison import load_comparison, store_com
 from graph_metadata_dashboard.cache.memory import InMemoryMetadataCache
 from graph_metadata_dashboard.components import comparison as comparison_components
 from graph_metadata_dashboard.components.single_graph import (
+    contribution_figure,
     primary_knowledge_source_counts,
     provenance_contribution,
     upload_selection_status,
@@ -137,7 +138,14 @@ def test_contribution_chart_preserves_real_fixture_behavior(graph_id: str) -> No
     inputs = _find_elements_by_type(contribution, "Input")
     graphs = _find_elements_by_type(contribution, "Graph")
     assert not inputs
-    assert contribution.className == "contribution-panel"
+    toggles = _find_elements_by_type(contribution, "RadioItems")
+    if graph_id == "robokopkg":
+        assert len(toggles) == 1
+        assert toggles[0].value == "node_count"
+    else:
+        assert not toggles
+    assert "contribution-panel" in contribution.className.split()
+    assert ("contribution-panel-with-metric" in contribution.className.split()) == bool(toggles)
     assert graphs[0].figure.layout.title.text.startswith(f"{len(graphs[0].figure.data[0].x)} ")
     assert "<sup>" not in graphs[0].figure.layout.title.text
     assert graphs[0].responsive
@@ -188,6 +196,101 @@ def test_primary_source_contribution_shows_all_sources_without_controls() -> Non
     assert figure.layout.yaxis.title.text == "Edge count"
     assert list(figure.data[0].y) == list(reversed(range(65)))
     assert not _find_elements_by_type(contribution, "Input")
+    assert not _find_elements_by_type(contribution, "RadioItems")
+
+
+def test_subgraph_metric_toggle_ranks_each_metric_and_handles_missing_counts() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    template = parsed.subgraphs[0]
+    parsed = replace(parsed, subgraphs=(
+        replace(template, name="Source A", id="urn:a", node_count=100, edge_count=10),
+        replace(template, name="Source B", id="urn:b", node_count=20, edge_count=200),
+        replace(template, name="Source C", id="urn:c", node_count=None, edge_count=0),
+        replace(template, name="Source D", id="urn:d", node_count=5, edge_count=None),
+    ))
+    panel = provenance_contribution(parsed)
+    toggle = _find_elements_by_type(panel, "RadioItems")[0]
+    assert "contribution-panel-with-metric" in panel.className.split()
+    assert toggle.value == "node_count"
+    assert toggle.options == [
+        {"label": "Nodes", "value": "node_count"},
+        {"label": "Edges", "value": "edge_count"},
+    ]
+    nodes = contribution_figure(parsed, "node_count")
+    edges = contribution_figure(parsed, "edge_count")
+    assert list(nodes.data[0].x) == ["Source A", "Source B", "Source D"]
+    assert list(nodes.data[0].y) == [100, 20, 5]
+    assert list(edges.data[0].x) == ["Source B", "Source A", "Source C"]
+    assert list(edges.data[0].y) == [200, 10, 0]
+    assert nodes.layout.yaxis.title.text == "Node count"
+    assert edges.layout.yaxis.title.text == "Edge count"
+    assert edges.layout.title.text == "3 Subgraph Contribution"
+    assert edges.layout.yaxis.type == "log"
+    assert "Node count:" in edges.data[0].hovertemplate
+    assert "Edge count:" in edges.data[0].hovertemplate
+    assert contribution_figure(parsed, "invalid").layout.yaxis.title.text == "Node count"
+
+
+@pytest.mark.parametrize("metric", ["node_count", "edge_count"])
+def test_subgraph_metric_toggle_hidden_for_single_metric_and_single_source(metric: str) -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    template = parsed.subgraphs[0]
+    sources = tuple(replace(
+        template, name=f"Source {index}",
+        node_count=index if metric == "node_count" else None,
+        edge_count=index if metric == "edge_count" else None,
+    ) for index in range(2))
+    parsed = replace(parsed, subgraphs=sources)
+    panel = provenance_contribution(parsed)
+    assert not _find_elements_by_type(panel, "RadioItems")
+    assert panel.className == "contribution-panel"
+    expected_title = "Node count" if metric == "node_count" else "Edge count"
+    assert _find_elements_by_type(panel, "Graph")[0].figure.layout.yaxis.title.text == (
+        expected_title
+    )
+    other_metric = "edge_count" if metric == "node_count" else "node_count"
+    assert contribution_figure(parsed, other_metric).layout.yaxis.title.text == expected_title
+    assert not _find_elements_by_type(
+        provenance_contribution(replace(parsed, subgraphs=sources[:1])), "RadioItems",
+    )
+
+
+def test_subgraph_metric_callback_uses_session_cache_and_resets_on_graph_change() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    template = parsed.subgraphs[0]
+    parsed = replace(parsed, subgraphs=tuple(replace(
+        template, name=f"Source {index}", node_count=index, edge_count=100 - index,
+    ) for index in range(65)))
+    cache.set("metric-session", "graph", parsed)
+    page_module.register_callbacks(
+        app, cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    update = next(entry["callback"].__wrapped__ for key, entry in app.callback_map.items()
+                  if "contribution-chart.figure" in key)
+    state = [{"cache_key": "graph"}]
+    figure, style = update("edge_count", state, "metric-session")
+    assert figure.layout.yaxis.title.text == "Edge count"
+    assert list(figure.data[0].y) == list(range(100, 35, -1))
+    assert style["width"] == "max(100%, 1660px)"
+    assert style["height"] == f"{figure.layout.height}px"
+    for missing_states, session in ((state, "other-session"), ([], "metric-session"),
+                                    (state * 2, "metric-session"),
+                                    ([{"cache_key": "expired"}], "metric-session")):
+        with pytest.raises(PreventUpdate):
+            update("edge_count", missing_states, session)
+    render = app.callback_map["provenance-panel.children"]["callback"].__wrapped__
+    for key in ("graph", "another-graph"):
+        cache.set("metric-session", key, parsed)
+        panel = render([{"cache_key": key}], "metric-session")
+        assert _find_elements_by_type(panel, "RadioItems")[0].value == "node_count"
+        assert _find_elements_by_type(panel, "Graph")[0].figure.layout.yaxis.title.text == (
+            "Node count"
+        )
 
 
 def test_provenance_callback_uses_session_cache_and_updates_on_graph_change() -> None:
@@ -209,7 +312,7 @@ def test_provenance_callback_uses_session_cache_and_updates_on_graph_change() ->
         kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
         url_client=UrlMetadataClient(("https://metadata.example",)),
     )
-    assert not any("contribution-chart.figure" in key for key in app.callback_map)
+    assert any("contribution-chart.figure" in key for key in app.callback_map)
     render = app.callback_map["provenance-panel.children"]["callback"].__wrapped__
     states = [{"cache_key": "large"}]
     for unavailable_states, unavailable_session in (
