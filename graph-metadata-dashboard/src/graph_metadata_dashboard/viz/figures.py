@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Collection
 from dataclasses import replace
-from math import sqrt
+from heapq import nlargest
+from math import ceil, radians, sin, sqrt
 
 import plotly.graph_objects as go
 
@@ -18,6 +19,9 @@ from graph_metadata_dashboard.parsers.models import (
 OTHER_LABEL = "Other"
 MAX_AXIS_LABEL_LENGTH = 30
 MIN_SHARED_PREFIX_LENGTH = 16
+CONTRIBUTION_MIN_PLOT_HEIGHT = 240
+CONTRIBUTION_LABEL_FONT_SIZE = 10
+CONTRIBUTION_LABEL_ANGLE = -55
 SANKEY_BASE_HEIGHT = 700
 SANKEY_MAX_HEIGHT = 4200
 SOURCE_PREDICATE_NODE_BODY_PIXELS = 24
@@ -40,32 +44,61 @@ BAR_HOVERLABEL = {
 def node_category_bar(
     nodes: tuple[NodeCategory, ...],
     *,
-    top_n: int = DEFAULT_TOP_COUNT,
     log_scale: bool = True,
 ) -> go.Figure:
-    top_nodes = sorted(nodes, key=lambda item: item.count, reverse=True)[:top_n]
+    sorted_nodes = sorted(nodes, key=lambda item: item.count, reverse=True)
+    categories = [node.category for node in sorted_nodes]
+    labels = [
+        _truncate_label(category.replace("biolink:", ""))
+        for category in categories
+    ]
     fig = go.Figure(
         data=[
             go.Bar(
-                x=[node.category for node in top_nodes],
-                y=[node.count for node in top_nodes],
+                x=categories,
+                y=[node.count for node in sorted_nodes],
+                customdata=categories,
+                hovertemplate="%{customdata}<br>Node count: %{y:,}<extra></extra>",
                 marker_color="#0f766e",
+                marker_line={"color": "#134e4a", "width": 1},
             )
         ]
     )
-    if len(nodes) <= top_n:
-        title = f"{len(nodes)} Node Category Contribution"
-    else:
-        title = f"Top {top_n} Node Category Contribution"
     fig.update_layout(
-        title=title,
+        title=f"{len(nodes):,} Node Category Contribution",
         xaxis_title="Node category",
         yaxis_title="Node count",
-        margin={"l": 48, "r": 24, "t": 56, "b": 120},
+        margin={"l": 48, "r": 24, "t": 56, "b": 24},
+        xaxis={
+            "automargin": True, "tickangle": CONTRIBUTION_LABEL_ANGLE,
+            "tickfont": {"size": CONTRIBUTION_LABEL_FONT_SIZE},
+            "tickmode": "array", "tickvals": categories,
+            "ticktext": labels,
+            "title": {"text": "Node category", "standoff": 8},
+        },
+        bargap=0,
+        bargroupgap=0,
+        height=_contribution_chart_height(labels),
         yaxis=_yaxis_config(log_scale),
         hoverlabel=BAR_HOVERLABEL,
     )
     return fig
+
+
+def _contribution_chart_height(labels: list[str]) -> int:
+    longest_label = max((len(label) for label in labels), default=0)
+    label_height = max(80, 45 + ceil(
+        longest_label * CONTRIBUTION_LABEL_FONT_SIZE * 0.65
+        * sin(radians(abs(CONTRIBUTION_LABEL_ANGLE)))
+    ))
+    return CONTRIBUTION_MIN_PLOT_HEIGHT + 56 + label_height
+
+
+def contribution_chart_style(figure: go.Figure) -> dict[str, str]:
+    return {
+        "width": f"max(100%, {max(700, len(figure.data[0].x) * 24 + 100)}px)",
+        "height": f"{figure.layout.height}px",
+    }
 
 
 def subject_object_category_pair_bar(
@@ -83,9 +116,9 @@ def subject_object_category_pair_bar(
         totals[key] += edge.count
         predicates[key].add(edge.predicate)
 
-    values = sorted(totals.items(), key=lambda item: item[1], reverse=True)[:top_n]
+    values = nlargest(max(1, top_n), totals.items(), key=lambda item: item[1])
     labels = [
-        _truncate_label(f"{subject} -> {obj}", max_length=42)
+        _truncate_label(f"{subject} -> {obj}".replace("biolink:", ""))
         for (subject, obj), _ in values
     ]
     positions = list(range(len(values)))
@@ -116,13 +149,13 @@ def subject_object_category_pair_bar(
                     "<extra></extra>"
                 ),
                 marker_color="#2563eb",
+                marker_line={"color": "#1e3a8a", "width": 1},
             )
         ]
     )
-    if len(totals) <= top_n:
-        title = f"{len(totals)} Subject-Object Category Pair Contribution"
-    else:
-        title = f"Top {top_n} Subject-Object Category Pair Contribution"
+    title = f"{len(totals):,} Subject-Object Category Pair Contribution"
+    if len(values) < len(totals):
+        title += f" (Top {len(values):,})"
     fig.update_layout(
         title=title,
         xaxis_title="Subject category -> object category",
@@ -131,15 +164,20 @@ def subject_object_category_pair_bar(
             "l": 48,
             "r": 24,
             "t": 56,
-            "b": _bottom_margin_for_labels(labels),
+            "b": 24,
         },
         xaxis={
             "automargin": True,
-            "tickangle": -35,
+            "tickangle": CONTRIBUTION_LABEL_ANGLE,
+            "tickfont": {"size": CONTRIBUTION_LABEL_FONT_SIZE},
             "tickmode": "array",
             "tickvals": positions,
             "ticktext": labels,
+            "title": {"text": "Subject category -> object category", "standoff": 8},
         },
+        bargap=0,
+        bargroupgap=0,
+        height=_contribution_chart_height(labels),
         yaxis=_yaxis_config(log_scale),
         hoverlabel=BAR_HOVERLABEL,
     )
@@ -151,7 +189,7 @@ def subgraph_contribution_bar(
     *,
     metric: str = "node_count",
     log_scale: bool = True,
-    top_n: int = DEFAULT_TOP_COUNT,
+    contribution_label: str = "Subgraph",
 ) -> go.Figure:
     values: list[tuple[str, str, str, int, int | None, int | None]] = []
     for source in subgraphs:
@@ -167,7 +205,7 @@ def subgraph_contribution_bar(
                     source.edge_count,
                 )
             )
-    values = sorted(values, key=lambda item: item[3], reverse=True)[:top_n]
+    values = sorted(values, key=lambda item: item[3], reverse=True)
     full_labels = [label for label, _, _, _, _, _ in values]
     fallback_labels = [fallback for _, fallback, _, _, _, _ in values]
     labels = _unique_labels(_shorten_common_labels(full_labels, fallback_labels))
@@ -191,27 +229,37 @@ def subgraph_contribution_bar(
                     "<extra></extra>"
                 ),
                 marker_color="#b45309",
+                marker_line={"color": "#78350f", "width": 1},
             )
         ]
     )
-    if len(subgraphs) <= top_n:
-        title = f"{len(subgraphs)} Subgraph Contribution"
-    else:
-        title = f"Top {top_n} Subgraph Contribution"
     fig.update_layout(
-        title=title,
-        xaxis_title="Subgraph",
+        title=f"{len(values):,} {contribution_label} Contribution",
+        xaxis_title=contribution_label,
         yaxis_title=yaxis_title,
         margin={
             "l": 48,
             "r": 24,
             "t": 56,
-            "b": _bottom_margin_for_labels(labels),
+            "b": 24,
         },
         yaxis=_yaxis_config(log_scale),
-        xaxis={"automargin": True, "tickangle": -35},
+        xaxis={
+            "automargin": True, "tickangle": CONTRIBUTION_LABEL_ANGLE,
+            "tickfont": {"size": CONTRIBUTION_LABEL_FONT_SIZE},
+            "tickmode": "array", "tickvals": labels, "ticktext": labels,
+            "title": {"text": contribution_label, "standoff": 8},
+        },
+        bargap=0,
+        bargroupgap=0,
+        height=_contribution_chart_height(labels),
         hoverlabel=BAR_HOVERLABEL,
     )
+    if not values:
+        fig.add_annotation(
+            text="No contributions with available counts.",
+            x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+        )
     return fig
 
 
@@ -1011,11 +1059,6 @@ def _common_prefix(labels: list[str]) -> str:
         while prefix and not label.startswith(prefix):
             prefix = prefix[:-1]
     return prefix
-
-
-def _bottom_margin_for_labels(labels: list[str]) -> int:
-    longest = max((len(label) for label in labels), default=0)
-    return max(90, min(150, 36 + longest * 2))
 
 
 def _yaxis_config(log_scale: bool) -> dict[str, str | int]:

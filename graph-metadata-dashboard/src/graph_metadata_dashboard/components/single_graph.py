@@ -4,9 +4,8 @@ from typing import Any
 
 from dash import dcc, html
 
-from graph_metadata_dashboard.constants import DEFAULT_TOP_COUNT
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata, SubgraphSource
-from graph_metadata_dashboard.viz.figures import count_bar, subgraph_contribution_bar
+from graph_metadata_dashboard.viz.figures import contribution_chart_style, subgraph_contribution_bar
 
 
 def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
@@ -17,24 +16,19 @@ def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:
             return _single_subgraph_statement(parsed.subgraphs[0])
         if has_node_counts:
             return html.Div(
-                children=[
-                    dcc.Graph(figure=subgraph_contribution_bar(parsed.subgraphs)),
-                ]
+                className="contribution-panel",
+                children=_contribution_chart(parsed),
             )
         if has_edge_counts:
             return html.Div(
+                className="contribution-panel",
                 children=[
                     html.P(
                         "Subgraph node counts were not provided. Showing edge counts by "
                         "contributing subgraph instead.",
                         className="status-line",
                     ),
-                    dcc.Graph(
-                        figure=subgraph_contribution_bar(
-                            parsed.subgraphs,
-                            metric="edge_count",
-                        )
-                    ),
+                    *_contribution_chart(parsed),
                 ]
             )
         primary_source_contribution = _primary_source_contribution(parsed)
@@ -76,30 +70,46 @@ def _primary_source_contribution(parsed: ParsedGraphMetadata) -> html.Div | None
             source, count = next(iter(primary_sources.items()))
             return _single_primary_source_statement(source, count)
 
-        top_n = DEFAULT_TOP_COUNT
-        if src_len <= top_n:
-            title = f"{src_len} Primary Knowledge Source Contribution"
-        else:
-            title = f"Top {top_n} Primary Knowledge Source Contribution"
-
         return html.Div(
+            className="contribution-panel",
             children=[
                 html.P(
                     "No subgraph counts were provided. Showing edge counts by "
                     "primary knowledge source from schema summary instead.",
                     className="status-line",
                 ),
-                dcc.Graph(
-                    figure=count_bar(
-                        primary_sources,
-                        title=title,
-                        xaxis_title="Primary knowledge source",
-                        top_n=top_n,
-                    )
-                ),
+                *_contribution_chart(parsed),
             ]
         )
     return None
+
+
+def contribution_sources(
+    parsed: ParsedGraphMetadata,
+) -> tuple[tuple[SubgraphSource, ...], str, str]:
+    if any(source.node_count is not None for source in parsed.subgraphs):
+        return parsed.subgraphs, "node_count", "Subgraph"
+    if any(source.edge_count is not None for source in parsed.subgraphs):
+        return parsed.subgraphs, "edge_count", "Subgraph"
+    sources = tuple(
+        SubgraphSource(id=source, name=source, node_count=None, edge_count=count)
+        for source, count in primary_knowledge_source_counts(parsed).items()
+    )
+    return sources, "edge_count", "Primary knowledge source"
+
+
+def _contribution_chart(parsed: ParsedGraphMetadata) -> list[dcc.Graph]:
+    sources, metric, label = contribution_sources(parsed)
+    figure = subgraph_contribution_bar(
+        sources, metric=metric, contribution_label=label,
+    )
+    return [
+        dcc.Graph(
+            id="contribution-chart", figure=figure, responsive=True,
+            style=contribution_chart_style(figure),
+            className="contribution-chart",
+        ),
+    ]
 
 
 def _single_subgraph_statement(subgraph: SubgraphSource) -> html.Div:

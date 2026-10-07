@@ -130,6 +130,218 @@ def test_provenance_contribution_falls_back_when_subgraph_counts_missing() -> No
     assert "primary knowledge source" in text
 
 
+@pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])
+def test_contribution_chart_preserves_real_fixture_behavior(graph_id: str) -> None:
+    parsed = parse_graph_metadata(load_fixture(f"{graph_id}.graph-metadata.json"))
+    contribution = provenance_contribution(parsed)
+    inputs = _find_elements_by_type(contribution, "Input")
+    graphs = _find_elements_by_type(contribution, "Graph")
+    assert not inputs
+    assert contribution.className == "contribution-panel"
+    assert graphs[0].figure.layout.title.text.startswith(f"{len(graphs[0].figure.data[0].x)} ")
+    assert "<sup>" not in graphs[0].figure.layout.title.text
+    assert graphs[0].responsive
+    assert graphs[0].style["width"].startswith("max(100%,")
+    assert graphs[0].figure.layout.bargap == 0
+    assert graphs[0].figure.layout.xaxis.tickangle == -55
+    assert graphs[0].figure.layout.xaxis.tickfont.size == 10
+    assert graphs[0].style["height"] == f"{graphs[0].figure.layout.height}px"
+
+
+@pytest.mark.parametrize("source_count", [65, 250])
+def test_contribution_chart_shows_all_sources_with_compact_scroll_width(source_count: int) -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    source = parsed.subgraphs[0]
+    parsed = replace(parsed, subgraphs=tuple(
+        replace(source, name=f"Source {index}", id=f"urn:source:{index}", node_count=index)
+        for index in range(source_count)
+    ))
+    contribution = provenance_contribution(parsed)
+    graph = _find_elements_by_type(contribution, "Graph")[0]
+    assert len(graph.figure.data[0].x) == source_count
+    assert graph.style["width"] == f"max(100%, {source_count * 24 + 100}px)"
+    assert list(graph.figure.data[0].y) == list(reversed(range(source_count)))
+    assert not _find_elements_by_type(contribution, "Input")
+
+
+def test_single_subgraph_keeps_statement_without_chart_controls() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    source = parsed.subgraphs[0]
+    contribution = provenance_contribution(replace(parsed, subgraphs=(source,)))
+    assert not _find_elements_by_type(contribution, "Graph")
+    assert not _find_elements_by_type(contribution, "Input")
+    assert "one contributing subgraph" in " ".join(_flatten_text(contribution))
+
+
+def test_primary_source_contribution_shows_all_sources_without_controls() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+    parsed = replace(parsed, subgraphs=(), schema=replace(
+        parsed.schema, edges_summary={"primary_knowledge_sources": {
+            f"infores:source-{index}": index for index in range(65)
+        }},
+    ))
+    contribution = provenance_contribution(parsed)
+    figure = _find_elements_by_type(contribution, "Graph")[0].figure
+    assert len(figure.data[0].x) == 65
+    assert figure.layout.title.text == "65 Primary knowledge source Contribution"
+    assert figure.layout.yaxis.title.text == "Edge count"
+    assert list(figure.data[0].y) == list(reversed(range(65)))
+    assert not _find_elements_by_type(contribution, "Input")
+
+
+def test_provenance_callback_uses_session_cache_and_updates_on_graph_change() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    session_id = "contribution-session"
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    source = parsed.subgraphs[0]
+    parsed = replace(parsed, subgraphs=tuple(
+        replace(source, name=f"Source {index}", node_count=index)
+        for index in range(65)
+    ))
+    cache.set(session_id, "large", parsed)
+    small = replace(parsed, subgraphs=parsed.subgraphs[:3])
+    cache.set(session_id, "small", small)
+    page_module.register_callbacks(
+        app, cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    assert not any("contribution-chart.figure" in key for key in app.callback_map)
+    render = app.callback_map["provenance-panel.children"]["callback"].__wrapped__
+    states = [{"cache_key": "large"}]
+    for unavailable_states, unavailable_session in (
+        (states, "another-session"), ([], session_id),
+        ([{"cache_key": "expired"}], session_id),
+        (states * 2, session_id),
+    ):
+        assert render(unavailable_states, unavailable_session) == ""
+    for graph_key, expected_count in (("small", 3), ("large", 65)):
+        panel = render([{"cache_key": graph_key}], session_id)
+        assert not _find_elements_by_type(panel, "Input")
+        graph = _find_elements_by_type(panel, "Graph")[0]
+        assert len(graph.figure.data[0].x) == expected_count
+
+
+@pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])
+def test_node_category_panel_renders_uncapped_scrollable_chart(graph_id: str) -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    parsed = parse_graph_metadata(
+        load_fixture(f"{graph_id}.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json") if graph_id == "robokopkg" else None,
+    )
+    if graph_id == "robokopkg":
+        assert parsed.schema is not None
+        template = parsed.schema.nodes[0]
+        parsed = replace(parsed, schema=replace(parsed.schema, nodes=tuple(
+            replace(template, category=f"biolink:Category{index}", count=index)
+            for index in range(65)
+        )))
+    cache.set("category-session", graph_id, parsed)
+    page_module.register_callbacks(
+        app, cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    render = app.callback_map["node-categories-panel.children"]["callback"].__wrapped__
+    state = [{"cache_key": graph_id, "kind": "upload"}]
+    assert render(state, "another-session") == ""
+    assert render([], "category-session") == ""
+    panel = render(state, "category-session")
+    graphs = _find_elements_by_type(panel, "Graph")
+    if parsed.schema is None:
+        assert not graphs
+        assert "Schema unavailable" in " ".join(_flatten_text(panel))
+    else:
+        assert len(graphs) == 1
+        graph = graphs[0]
+        assert len(graph.figure.data[0].x) == len(parsed.schema.nodes)
+        assert graph.responsive
+        assert graph.style["height"] == f"{graph.figure.layout.height}px"
+        assert (
+            graph.figure.layout.height
+            - graph.figure.layout.margin.t - graph.figure.layout.margin.b >= 267
+        )
+        assert graph.style["width"] == (
+            f"max(100%, {max(700, len(parsed.schema.nodes) * 24 + 100)}px)"
+        )
+        assert _find_elements_by_class(panel, "contribution-panel")
+        assert all("biolink:" not in label
+                   for label in graph.figure.layout.xaxis.ticktext)
+
+
+@pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])
+def test_category_pair_panel_uses_bounded_adaptive_chart(graph_id: str) -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    parsed = parse_graph_metadata(
+        load_fixture(f"{graph_id}.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json") if graph_id == "robokopkg" else None,
+    )
+    if graph_id == "robokopkg":
+        assert parsed.schema is not None
+        template = parsed.schema.edges[0]
+        parsed = replace(parsed, schema=replace(parsed.schema, edges=tuple(
+            replace(template, subject_category=("biolink:Protein", "biolink:Drug"),
+                    object_category=(f"biolink:Object{index}",), count=index)
+            for index in range(65)
+        )))
+    cache.set("pair-session", graph_id, parsed)
+    page_module.register_callbacks(
+        app, cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    callback = app.callback_map["category-pair-summary-panel.children"]
+    assert callback["inputs"] == [{"id": "loaded-graph-state", "property": "data"}]
+    render = callback["callback"].__wrapped__
+    state = [{"cache_key": graph_id, "kind": "upload"}]
+    assert render([], "pair-session") == ""
+    assert render(state * 2, "pair-session") == ""
+    panel = render(state, "pair-session")
+    graphs = _find_elements_by_type(panel, "Graph")
+    if parsed.schema is None:
+        assert not graphs
+    else:
+        assert len(graphs) == 1
+        graph = graphs[0]
+        if graph_id == "robokopkg":
+            assert len(graph.figure.data[0].x) == 50
+            assert graph.style["width"] == "max(100%, 1300px)"
+            assert graph.figure.layout.title.text == (
+                "65 Subject-Object Category Pair Contribution (Top 50)"
+            )
+        assert graph.responsive
+        assert graph.style["height"] == f"{graph.figure.layout.height}px"
+        assert graph.figure.layout.bargap == 0
+        assert graph.figure.layout.xaxis.tickangle == -55
+        assert all("biolink:" not in label for label in graph.figure.layout.xaxis.ticktext)
+        assert _find_elements_by_class(panel, "contribution-panel")
+
+
+def test_predicate_composition_includes_inline_pairs_without_toggle() -> None:
+    create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    layout = page_module.layout()
+    card = next(item for item in _find_elements_by_type(layout, "Div")
+                if getattr(item, "id", None) == "sankey-action-card")
+    text = " ".join(_flatten_text(card))
+    assert "three perspectives" in text
+    assert "Pairs bar chart summarizes edge counts" in text
+    assert "Show subject-object category pairs" not in text
+    assert "Hide subject-object category pairs" not in text
+    pair_panel = next(item for item in _find_elements_by_type(card, "Div")
+                      if getattr(item, "id", None) == "category-pair-summary-panel")
+    assert not getattr(pair_panel, "hidden", False)
+    assert not any(getattr(item, "id", None) == "category-pair-summary-visible"
+                   for item in _find_elements_by_type(layout, "Store"))
+
+
 def test_upload_selection_status_lists_selected_files() -> None:
     status = upload_selection_status("graph-metadata.json", "schema.json")
 

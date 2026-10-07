@@ -399,16 +399,6 @@ body {
   font-weight: 650;
 }
 
-.category-pair-toggle-button {
-  align-self: flex-end;
-  min-height: 2rem;
-  padding: 0.38rem 0.72rem;
-  background: rgba(15, 118, 110, 0.1);
-  border-color: rgba(15, 118, 110, 0.28);
-  color: var(--teal);
-  font-size: 0.82rem;
-}
-
 .selection-summary {
   margin-top: 0.5rem;
 }
@@ -1354,10 +1344,6 @@ body {
     height: auto;
   }
 
-  .category-pair-toggle-button {
-    align-self: flex-start;
-  }
-
   .sankey-filter-grid-compact {
     grid-template-columns: 1fr;
   }
@@ -1366,4 +1352,9 @@ body {
     max-height: 74vh;
     min-height: 62vh;
   }
+}
+
+.contribution-panel {
+  min-width: 0;
+  overflow-x: auto;
 }

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
-from graph_metadata_dashboard.parsers.models import EdgeTriple, KnowledgeSourcePredicateCount
+from graph_metadata_dashboard.parsers.models import (
+    EdgeTriple,
+    KnowledgeSourcePredicateCount,
+    NodeCategory,
+)
 from graph_metadata_dashboard.viz.figures import (
     SANKEY_BASE_HEIGHT,
     SANKEY_DEFAULT_NODE_PAD,
+    contribution_chart_style,
     count_bar,
     filter_source_predicate_counts,
     knowledge_source_predicate_sankey,
@@ -19,13 +26,104 @@ from graph_metadata_dashboard.viz.figures import (
 from tests.conftest import load_fixture
 
 
-def test_node_category_bar_limits_top_n() -> None:
+def test_node_category_bar_shows_all_categories_with_compact_labels() -> None:
     parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
     assert parsed.schema is not None
 
-    figure = node_category_bar(parsed.schema.nodes, top_n=5)
+    figure = node_category_bar(parsed.schema.nodes)
 
-    assert len(figure.data[0].x) == 5
+    sorted_nodes = sorted(parsed.schema.nodes, key=lambda node: node.count, reverse=True)
+    assert list(figure.data[0].x) == [node.category for node in sorted_nodes]
+    assert list(figure.data[0].y) == [node.count for node in sorted_nodes]
+    full_labels = [node.category.replace("biolink:", "") for node in sorted_nodes]
+    assert list(figure.layout.xaxis.ticktext) == [
+        label if len(label) <= 30 else f"{label[:27]}..." for label in full_labels
+    ]
+    assert figure.layout.title.text == f"{len(sorted_nodes)} Node Category Contribution"
+    assert figure.layout.bargap == 0
+    assert figure.layout.bargroupgap == 0
+    assert figure.data[0].marker.line.width == 1
+    assert figure.layout.xaxis.tickangle == -55
+    assert figure.layout.xaxis.tickfont.size == 10
+    assert figure.layout.height - figure.layout.margin.t - figure.layout.margin.b >= 267
+    assert figure.layout.yaxis.type == "log"
+    assert "%{customdata}" in figure.data[0].hovertemplate
+    assert list(figure.data[0].customdata) == [node.category for node in sorted_nodes]
+
+
+def test_node_category_bar_has_no_cutoff_and_preserves_distinct_category_ids() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    template = parsed.schema.nodes[0]
+    nodes = tuple(replace(template, category=f"biolink:Category{index}", count=index)
+                  for index in range(65)) + (
+        replace(template, category="Gene", count=200),
+        replace(template, category="biolink:Gene", count=100),
+        replace(template, category="custom:Category", count=0),
+    )
+    figure = node_category_bar(nodes, log_scale=False)
+    assert len(figure.data[0].x) == 68
+    assert figure.layout.title.text == "68 Node Category Contribution"
+    assert list(figure.layout.xaxis.tickvals)[:2] == ["Gene", "biolink:Gene"]
+    assert list(figure.layout.xaxis.ticktext)[:2] == ["Gene", "Gene"]
+    assert "custom:Category" in figure.layout.xaxis.ticktext
+    assert figure.layout.yaxis.type == "linear"
+
+
+def test_node_category_bar_handles_empty_schema() -> None:
+    nodes: tuple[NodeCategory, ...] = ()
+    figure = node_category_bar(nodes)
+    assert not figure.data[0].x
+    assert figure.layout.title.text == "0 Node Category Contribution"
+
+
+def test_node_category_labels_strip_all_prefixes_and_height_adapts_to_long_labels() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+    template = parsed.schema.nodes[0]
+    short = node_category_bar((replace(template, category="biolink:Gene"),))
+    combined_category = "biolink:Protein,biolink:Drug"
+    combined = node_category_bar((replace(template, category=combined_category),))
+    assert list(combined.layout.xaxis.ticktext) == ["Protein,Drug"]
+    assert list(combined.data[0].x) == [combined_category]
+    long_category = ",".join(["biolink:MacromolecularComplex"] * 20)
+    long = node_category_bar((replace(template, category=long_category),))
+    assert "biolink:" not in long.layout.xaxis.ticktext[0]
+    assert len(long.layout.xaxis.ticktext[0]) == 30
+    assert long.layout.xaxis.ticktext[0].endswith("...")
+    assert list(long.data[0].x) == [long_category]
+    assert list(long.data[0].customdata) == [long_category]
+    assert long.layout.height > combined.layout.height > short.layout.height
+    for figure in (short, combined, long):
+        assert figure.layout.margin.b == 24
+        assert figure.layout.xaxis.automargin
+        assert figure.layout.height - figure.layout.margin.t - figure.layout.margin.b >= 267
+
+
+def test_contribution_charts_share_adaptive_height_and_width_rules() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    node_template = parsed.schema.nodes[0]
+    source_template = parsed.subgraphs[0]
+    heights = []
+    for label in ("Gene", "MacromolecularComplex"):
+        nodes = tuple(replace(node_template, category=f"biolink:{label}{index}", count=index)
+                      for index in range(65))
+        sources = tuple(replace(source_template, name=f"{label}{index}",
+                                id=f"urn:source:{index}", node_count=index)
+                        for index in range(65))
+        node_figure = node_category_bar(nodes)
+        source_figure = subgraph_contribution_bar(sources)
+        assert node_figure.layout.height == source_figure.layout.height
+        assert node_figure.layout.xaxis.tickangle == source_figure.layout.xaxis.tickangle
+        assert node_figure.layout.xaxis.tickfont.size == source_figure.layout.xaxis.tickfont.size
+        assert contribution_chart_style(node_figure) == contribution_chart_style(source_figure)
+        assert contribution_chart_style(node_figure)["width"] == "max(100%, 1660px)"
+        assert node_figure.layout.margin.b == source_figure.layout.margin.b == 24
+        heights.append(node_figure.layout.height)
+    assert heights[1] > heights[0]
 
 
 def test_subject_object_category_pair_bar_aggregates_pairs() -> None:
@@ -65,16 +163,106 @@ def test_subject_object_category_pair_bar_aggregates_pairs() -> None:
         ),
     )
 
-    figure = subject_object_category_pair_bar(edges, top_n=1)
+    figure = subject_object_category_pair_bar(edges)
 
-    assert list(figure.data[0].x) == [0]
-    assert list(figure.data[0].y) == [125]
+    assert list(figure.data[0].x) == [0, 1]
+    assert list(figure.data[0].y) == [125, 50]
     assert figure.data[0].orientation is None
-    assert figure.layout.xaxis.ticktext[0] == "biolink:Gene -> biolink:Disease"
+    assert figure.layout.xaxis.ticktext[0] == "Gene -> Disease"
     assert "(" not in figure.layout.xaxis.ticktext[0]
     assert figure.data[0].customdata[0][0] == "biolink:Gene"
     assert figure.data[0].customdata[0][1] == "biolink:Disease"
     assert figure.data[0].customdata[0][3] == "2"
+    assert figure.layout.title.text == "2 Subject-Object Category Pair Contribution"
+    assert figure.layout.bargap == 0
+    assert figure.layout.bargroupgap == 0
+    assert figure.data[0].marker.line.width == 1
+    assert figure.layout.xaxis.tickangle == -55
+    assert figure.layout.xaxis.tickfont.size == 10
+    assert figure.layout.margin.b == 24
+
+
+def test_category_pair_chart_bounds_rendering_and_strips_compound_category_prefixes() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    template = parsed.schema.edges[0]
+    edges = tuple(replace(
+        template, subject_category=("biolink:Protein", "biolink:Drug"),
+        object_category=(f"biolink:Category{index}",), count=index,
+    ) for index in range(65))
+    figure = subject_object_category_pair_bar(edges)
+    assert len(figure.data[0].x) == 50
+    assert list(figure.data[0].y) == list(reversed(range(15, 65)))
+    assert figure.layout.title.text == "65 Subject-Object Category Pair Contribution (Top 50)"
+    assert all("biolink:" not in label for label in figure.layout.xaxis.ticktext)
+    assert "Protein" in figure.layout.xaxis.ticktext[0]
+    assert "Drug" in figure.layout.xaxis.ticktext[0]
+    assert "biolink:Protein" in figure.data[0].customdata[0][0]
+    assert figure.data[0].customdata[0][1] == "biolink:Category64"
+    labels = tuple(replace(parsed.schema.nodes[0], category=label, count=index)
+                   for index, label in enumerate(figure.layout.xaxis.ticktext))
+    node_figure = node_category_bar(labels)
+    assert contribution_chart_style(figure) == contribution_chart_style(node_figure)
+    assert contribution_chart_style(figure)["width"] == "max(100%, 1300px)"
+    smaller = subject_object_category_pair_bar(edges, top_n=10)
+    assert len(smaller.data[0].x) == 10
+    assert smaller.layout.title.text == "65 Subject-Object Category Pair Contribution (Top 10)"
+
+
+def test_category_chart_labels_truncate_only_past_limit_and_keep_full_tooltips() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    node_template = parsed.schema.nodes[0]
+    edge_template = parsed.schema.edges[0]
+    for length in (29, 30, 31, 100):
+        category = "biolink:" + "A" * length
+        node_figure = node_category_bar((replace(node_template, category=category),))
+        label = node_figure.layout.xaxis.ticktext[0]
+        assert label == ("A" * length if length <= 30 else "A" * 27 + "...")
+        assert node_figure.data[0].customdata[0] == category
+        subject = "biolink:" + "A" * (length - 5)
+        obj = "biolink:B"
+        pair_figure = subject_object_category_pair_bar((replace(
+            edge_template, subject_category=(subject,), object_category=(obj,),
+        ),))
+        full_label = subject.replace("biolink:", "") + " -> B"
+        expected = full_label if length <= 30 else full_label[:27] + "..."
+        assert pair_figure.layout.xaxis.ticktext[0] == expected
+        assert pair_figure.data[0].customdata[0][0] == subject
+        assert pair_figure.data[0].customdata[0][1] == obj
+        assert "%{customdata[0]}" in pair_figure.data[0].hovertemplate
+        assert "%{customdata[1]}" in pair_figure.data[0].hovertemplate
+
+
+def test_category_pair_chart_bounds_real_robokop_payload() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    figure = subject_object_category_pair_bar(parsed.schema.edges)
+    assert len(figure.data[0].x) == 50
+    assert figure.layout.title.text == "406 Subject-Object Category Pair Contribution (Top 50)"
+    assert len(figure.to_json()) < 25000
+    assert contribution_chart_style(figure)["width"] == "max(100%, 1300px)"
+
+
+def test_all_contribution_chart_heights_preserve_user_adjusted_plot_height() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    for figure in (node_category_bar(parsed.schema.nodes),
+                   subgraph_contribution_bar(parsed.subgraphs),
+                   subject_object_category_pair_bar(parsed.schema.edges)):
+        assert 376 <= figure.layout.height <= 661
+        assert contribution_chart_style(figure)["height"] == f"{figure.layout.height}px"
+    assert node_category_bar(()).layout.height == 376
+
+
+def test_category_pair_chart_handles_empty_edges() -> None:
+    figure = subject_object_category_pair_bar(())
+    assert not figure.data[0].x
+    assert figure.layout.title.text == "0 Subject-Object Category Pair Contribution"
 
 
 def test_predicate_sankey_builds_limited_flows() -> None:
@@ -131,7 +319,7 @@ def test_predicate_sankey_keeps_all_category_cap_but_allows_filtered_relationshi
         for index in range(50)
     )
 
-    unfiltered = predicate_sankey(edges)
+    unfiltered = predicate_sankey(edges, top_n=40)
     filtered = predicate_sankey(edges, subject_filter="biolink:Gene", top_n=200)
 
     assert len(unfiltered.data[0].link.value) == 80
@@ -617,7 +805,18 @@ def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None
     assert figure.data[0].orientation is None
     assert figure.layout.yaxis.type == "log"
     assert figure.layout.yaxis.dtick == 1
-    assert figure.layout.margin.b <= 150
+    assert figure.layout.margin.b == 24
+    assert figure.layout.xaxis.automargin
+    assert figure.layout.xaxis.title.standoff == 8
+    assert figure.layout.title.text == f"{len(figure.data[0].x)} Subgraph Contribution"
+    assert figure.layout.xaxis.tickangle == -55
+    assert figure.layout.xaxis.tickfont.size == 10
+    assert figure.layout.xaxis.tickmode == "array"
+    assert list(figure.layout.xaxis.tickvals) == list(figure.data[0].x)
+    assert figure.layout.bargap == 0
+    assert figure.layout.bargroupgap == 0
+    assert figure.data[0].marker.line.width == 1
+    assert figure.data[0].marker.line.color == "#78350f"
     assert all(
         not str(label).startswith("A ROBOKOP Knowledge Graph based on")
         for label in figure.data[0].x
@@ -635,3 +834,23 @@ def test_subgraph_contribution_keeps_vertical_layout_with_short_labels() -> None
     assert "Node count:" in figure.data[0].hovertemplate
     assert "Edge count:" in figure.data[0].hovertemplate
     assert "Count:" not in figure.data[0].hovertemplate
+
+
+def test_subgraph_contribution_title_counts_only_displayed_sources() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"))
+    template = parsed.subgraphs[0]
+    sources = tuple(
+        replace(template, name=f"Source {index}", id=f"urn:source:{index}", node_count=index)
+        for index in range(65)
+    ) + (replace(template, name="Source missing", node_count=None),)
+
+    default = subgraph_contribution_bar(sources)
+    assert len(default.data[0].x) == 65
+    assert default.layout.title.text == "65 Subgraph Contribution"
+    assert list(default.data[0].y) == list(reversed(range(65)))
+    missing = subgraph_contribution_bar((replace(template, node_count=None),))
+    assert not missing.data[0].x
+    assert missing.layout.title.text == "0 Subgraph Contribution"
+    assert missing.layout.annotations[0].text
+    empty = subgraph_contribution_bar(())
+    assert empty.layout.title.text == "0 Subgraph Contribution"
