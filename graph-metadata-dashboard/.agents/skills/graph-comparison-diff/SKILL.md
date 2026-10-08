@@ -105,8 +105,11 @@ counts only. Do not render visual intensity for zero or missing changes.
 
 - Keep the complete typed schema changes in `ComparisonResult`. Do not apply upstream top-25
   truncation: the heatmap and remaining-changes dialogs need candidates beyond the inline lists.
-  Heatmap Top items defaults to 20, accepts 1–100, and applies on Enter or blur with a visible hint.
-  Preserve the global-first, pair-balanced ranking described above.
+  Heatmap Top items defaults to 20, accepts any positive whole number, and applies on Enter or
+  blur with a visible hint. Limit the effective count to available change rows. Warn that large 
+  selections may slow rendering; pagination is not needed for now. Invalid inputs fall back to the 
+  default. Reuse the cached comparison snapshot when changing the count rather than recomputing 
+  the comparison. Preserve the global-first, pair-balanced ranking described above.
 - The Comparison Overview puts the chosen baseline first and marks it with bold black
   `(baseline)`. Sources and Subgraphs both open Show changes dialogs: group by Status and show
   Changed Fields for modified records, not as a substitute for Added/Removed status. Preserve

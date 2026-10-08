@@ -1258,15 +1258,15 @@ def test_comparison_dashboard_renders_schema_change_visuals() -> None:
     assert limit_input.id == "heatmap-row-limit"
     assert limit_input.value == 20
     assert limit_input.min == 1
-    assert limit_input.max == 100
+    assert "max" not in limit_input.to_plotly_json()["props"]
     assert limit_input.step == 1
     assert limit_input.debounce is True
     limit_control = _find_elements_by_class(legend, "heatmap-row-limit-control")[0]
     hint = _find_elements_by_class(limit_control, "heatmap-row-limit-hint")[0]
     assert hint.children == "Press Enter or click outside to apply."
-    assert "TOP ITEMS (20 by default; maximum 100)." in text
+    assert "TOP ITEMS (20 by default)." in text
     error = _find_elements_by_class(limit_control, "heatmap-row-limit-error")[0]
-    assert error.children == "Enter a whole number from 1 to 100."
+    assert error.children == "Enter a positive whole number."
     assert error.role == "alert"
     assert "Overall Node and Edge Composition Summary Changes" in text
     assert "Node type" in text
@@ -1523,7 +1523,7 @@ def test_heatmap_row_limit_callback_uses_cached_graphs_and_selected_baseline(
     monkeypatch.setattr(page_module, "compare", unexpected_compare)
 
     assert callback["inputs"] == [{"id": "heatmap-row-limit", "property": "value"}]
-    for row_limit, expected_rows in ((5, 5), (35, 35), (None, 20)):
+    for row_limit, expected_rows in ((5, 5), (35, 35), (150, 150), (None, 20)):
         table = update_heatmap(row_limit, token, session_id)
         assert len(_find_elements_by_type(table, "Tbody")[0].children) == expected_rows
         assert "translator_kg_open" in _flatten_text(table.children[0])[2]
@@ -2144,7 +2144,8 @@ def test_heatmap_ranking_reserves_rows_for_each_comparison_column() -> None:
     assert len(ranked) == comparison_components.HEATMAP_ROW_LIMIT
     assert sum(1 for row in ranked if row.cells[1] is not None) == 5
     for row_limit, expected_count in (
-        (2, 2), (7, 7), (30, 30), (None, 20), (0, 1), (float("nan"), 20), (1000, 30)
+        (2, 2), (7.0, 7), (30, 30), (None, 20), (0, 20), (-1, 20), (1.5, 20),
+        (True, 20), (float("nan"), 20), (float("inf"), 20), (1000, 30)
     ):
         limited = comparison_components._rank_heatmap_rows(
             scored_rows, scale=scale, comparison_count=2, row_limit=row_limit
@@ -2156,10 +2157,13 @@ def test_heatmap_ranking_reserves_rows_for_each_comparison_column() -> None:
     many_rows = tuple(
         replace(row, key=f"{row.key}-{index}") for index in range(4) for row in scored_rows
     )
-    bounded = comparison_components._rank_heatmap_rows(
-        many_rows, scale=scale, comparison_count=2, row_limit=1000
-    )
-    assert len(bounded) == comparison_components.HEATMAP_MAX_ROW_LIMIT
+    for comparison_count in (1, 2):
+        for row_limit, expected_count in ((110, 110), (1000, 120), (10**1000, 120)):
+            expanded = comparison_components._rank_heatmap_rows(
+                many_rows, scale=scale, comparison_count=comparison_count, row_limit=row_limit
+            )
+            assert len(expanded) == expected_count
+            assert len({row.key for row in expanded}) == expected_count
 
 
 def test_heatmap_ranking_uses_global_rows_first_for_multi_column_comparison() -> None:

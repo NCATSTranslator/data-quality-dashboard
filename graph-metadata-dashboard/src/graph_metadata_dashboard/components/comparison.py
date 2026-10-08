@@ -32,7 +32,6 @@ from graph_metadata_dashboard.diff.details import (
 from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata
 
 HEATMAP_ROW_LIMIT = 20
-HEATMAP_MAX_ROW_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -639,7 +638,7 @@ def _comparison_heatmap(comparisons: tuple[GraphComparison, ...]) -> html.Div | 
                 "node categories, edge triples, and overall schema. Cell color uses one "
                 "sequential scale for normalized changes across all rows. "
                 "Enter the number of changes to show in TOP ITEMS "
-                f"({HEATMAP_ROW_LIMIT} by default; maximum {HEATMAP_MAX_ROW_LIMIT}).",
+                f"({HEATMAP_ROW_LIMIT} by default).",
                 className="comparison-table-note",
             ),
             _heatmap_legend(),
@@ -742,11 +741,13 @@ def _rank_heatmap_rows(
     comparison_count: int,
     row_limit: int | float | None = HEATMAP_ROW_LIMIT,
 ) -> tuple[_HeatmapRow, ...]:
-    if not isinstance(row_limit, (int, float)) or not math.isfinite(row_limit):
+    if isinstance(row_limit, float) and math.isfinite(row_limit) and row_limit.is_integer():
+        row_limit = int(row_limit)
+    if type(row_limit) is not int or row_limit < 1:
         row_limit = HEATMAP_ROW_LIMIT
-    row_limit = max(1, min(HEATMAP_MAX_ROW_LIMIT, int(row_limit)))
     if not rows:
         return ()
+    row_limit = min(row_limit, len(rows))
     if comparison_count > 1:
         return _rank_heatmap_rows_global_first(
             rows,
@@ -1064,7 +1065,6 @@ def _heatmap_legend() -> html.Div:
                         type="number",
                         value=HEATMAP_ROW_LIMIT,
                         min=1,
-                        max=HEATMAP_MAX_ROW_LIMIT,
                         step=1,
                         debounce=True,
                     ),
@@ -1073,7 +1073,7 @@ def _heatmap_legend() -> html.Div:
                         className="heatmap-row-limit-hint",
                     ),
                     html.Small(
-                        f"Enter a whole number from 1 to {HEATMAP_MAX_ROW_LIMIT}.",
+                        "Enter a positive whole number.",
                         className="heatmap-row-limit-error",
                         role="alert",
                     ),
