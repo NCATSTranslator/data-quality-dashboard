@@ -51,17 +51,25 @@ and its linked `schema.json` informed these — not guesses.
 - `isBasedOn`: array of underlying data sources, each with `id` (an `infores:` CURIE), `name`,
   `description`, `license`, `attribution`, `citation` (array), `version`. **Some fields are empty
   strings** in practice (e.g. `"name": ""`) — render defensively.
-- `schema`: **shape varies across real releases and must be detected, not assumed** — confirmed
-  across three real graphs:
+- `schema`: **shape varies across releases and must be detected, not assumed**. Current local
+  fixtures cover these shapes:
   - RobokopKG: a *pointer* object `{"@id": "...schema.json"}` requiring a second fetch.
   - `translator_kg_open`: **embedded inline** — directly contains `nodes`, `nodes_summary`,
     `edges`, etc., no separate fetch needed.
-  - `alliance`: **absent entirely.**
+  - `alliance`: **embedded inline** in the current fixture, like `translator_kg_open`, but a
+    much smaller single-source graph. Do not assume schema absence from the graph's name.
+  - Absent schema remains supported. Test it explicitly by copying a real fixture and removing
+    its `schema` field; the three unmodified fixtures do not cover this branch by themselves.
   - The parser must branch explicitly: check whether `data["schema"]` contains `"@id"` (pointer —
     fetch it) or `"nodes"`/`"edges"` directly (inline — use as-is). Not a "handle it later" TODO.
   - Only `graph-metadata.json` is loaded initially; `schema.json` must not be fetched until a
     visualization requiring it is opened. The single-graph overview must render fully and
     gracefully from `graph-metadata.json` alone when schema data is absent or a fetch fails.
+
+Keep all three fixture tiers: Alliance covers small single-source behavior,
+`translator_kg_open` covers merged inline-schema behavior, and ROBOKOP plus its separate schema
+covers pointer loading and larger metadata. The two inline fixtures are not redundant; they
+exercise different scale/source-composition cases and provide distinct comparison inputs.
 
 ## Namespace compatibility and optional subgraph fields
 

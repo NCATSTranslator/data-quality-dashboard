@@ -23,6 +23,7 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.config import Settings
+from graph_metadata_dashboard.constants import ALL_NODE_CATEGORIES_VALUE
 from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SourceChange, SubgraphChange
 from graph_metadata_dashboard.diff.details import (
     adaptive_inline_count,
@@ -360,8 +361,8 @@ def test_node_category_panel_renders_uncapped_scrollable_chart(graph_id: str) ->
         assert not graphs
         assert "Schema unavailable" in " ".join(_flatten_text(panel))
     else:
-        assert len(graphs) == 1
-        graph = graphs[0]
+        assert len(graphs) == 2
+        graph = next(graph for graph in graphs if graph.id == "node-category-contribution-chart")
         assert len(graph.figure.data[0].x) == len(parsed.schema.nodes)
         assert graph.responsive
         assert graph.style["height"] == f"{graph.figure.layout.height}px"
@@ -375,6 +376,81 @@ def test_node_category_panel_renders_uncapped_scrollable_chart(graph_id: str) ->
         assert _find_elements_by_class(panel, "contribution-panel")
         assert all("biolink:" not in label
                    for label in graph.figure.layout.xaxis.ticktext)
+
+
+def test_node_attribute_callbacks_link_bar_clicks_dropdown_and_reset() -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+    cache.set("attribute-session", "graph", parsed)
+    page_module.register_callbacks(
+        app, cache=cache,
+        kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    state = [{"cache_key": "graph"}]
+    select = app.callback_map["node-attribute-category.value"]["callback"].__wrapped__
+    update = next(entry["callback"].__wrapped__ for key, entry in app.callback_map.items()
+                  if "node-attribute-chart.figure" in key)
+    node = next(node for node in parsed.schema.nodes if node.count > 0 and node.attributes)
+    click = {"points": [{"customdata": node.category, "x": node.category}]}
+    assert select(click, state, "attribute-session") == node.category
+    assert select({"points": [{"x": node.category}]}, state, "attribute-session") == (
+        node.category
+    )
+    figure, style, status, viewport_style, contribution = update(
+        node.category, "", state, "attribute-session",
+    )
+    assert node.category in status
+    assert f"{node.count:,} nodes" in status
+    assert style["height"] == f"{figure.layout.height}px"
+    assert viewport_style["height"] == f"{contribution.layout.height}px"
+    assert list(figure.data[0].customdata[0])[2] == node.count
+    selected_index = list(contribution.data[0].x).index(node.category)
+    assert contribution.data[0].marker.color[selected_index] == "#b45309"
+    reset_category = select({"reset": True, "sequence": 1}, state, "attribute-session")
+    assert reset_category == ALL_NODE_CATEGORIES_VALUE
+    all_view = update(reset_category, "", state, "attribute-session")
+    assert "All categories" in all_view[2]
+    assert set(all_view[4].data[0].marker.color) == {"#0f766e"}
+    search = update(node.category, "no-such-attribute", state, "attribute-session")
+    assert not search[0].data[0].x
+    assert "Showing 0 of 0 matching" in search[2]
+    cleared = update(node.category, "", state, "attribute-session")
+    assert len(cleared[0].data[0].x) == min(50, len(node.attributes))
+    assert "matching" not in cleared[2]
+    assert cleared[3] == search[3]
+    assert "All categories" in update("stale-category", "", state, "attribute-session")[2]
+    for invalid_click in (None, {}, {"points": []}, {"points": [None]},
+                          {"points": [{"x": "unknown-category"}]}):
+        with pytest.raises(PreventUpdate):
+            select(invalid_click, state, "attribute-session")
+    for states, session in (([], "attribute-session"), (state * 2, "attribute-session"),
+                            (state, "another-session"),
+                            ([{"cache_key": "expired"}], "attribute-session")):
+        with pytest.raises(PreventUpdate):
+            update(node.category, "", states, session)
+        with pytest.raises(PreventUpdate):
+            select(click, states, session)
+    render = app.callback_map["node-categories-panel.children"]["callback"].__wrapped__
+    for key in ("graph", "new-graph"):
+        cache.set("attribute-session", key, parsed)
+        panel = render([{"cache_key": key}], "attribute-session")
+        dropdown = next(item for item in _find_elements_by_type(panel, "Dropdown")
+                        if item.id == "node-attribute-category")
+        assert dropdown.value == ALL_NODE_CATEGORIES_VALUE
+        assert len(dropdown.options) == len(parsed.schema.nodes) + 1
+        assert len(_find_elements_by_type(panel, "Dropdown")) == 1
+        assert "Attributes to show" not in " ".join(_flatten_text(panel))
+        search_input = _find_elements_by_type(panel, "Input")[0]
+        assert search_input.value == ""
+        assert search_input.debounce is False
+        viewport = _find_elements_by_class(panel, "node-attribute-scroll")[0]
+        category_graph = next(graph for graph in _find_elements_by_type(panel, "Graph")
+                              if graph.id == "node-category-contribution-chart")
+        assert viewport.style["height"] == f"{category_graph.figure.layout.height}px"
 
 
 @pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])

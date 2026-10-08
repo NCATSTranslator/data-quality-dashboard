@@ -8,12 +8,18 @@ from math import ceil, radians, sin, sqrt
 
 import plotly.graph_objects as go
 
-from graph_metadata_dashboard.constants import DEFAULT_TOP_COUNT
+from graph_metadata_dashboard.constants import (
+    ALL_NODE_CATEGORIES_VALUE,
+    DEFAULT_TOP_COUNT,
+    MAX_ATTRIBUTE_TOP_N,
+)
 from graph_metadata_dashboard.parsers.models import (
     EdgeTriple,
+    GraphSchema,
     KnowledgeSourcePredicateCount,
     NodeCategory,
     SubgraphSource,
+    int_or_none,
 )
 
 OTHER_LABEL = "Other"
@@ -45,6 +51,7 @@ def node_category_bar(
     nodes: tuple[NodeCategory, ...],
     *,
     log_scale: bool = True,
+    selected_category: str | None = None,
 ) -> go.Figure:
     sorted_nodes = sorted(nodes, key=lambda item: item.count, reverse=True)
     categories = [node.category for node in sorted_nodes]
@@ -59,7 +66,10 @@ def node_category_bar(
                 y=[node.count for node in sorted_nodes],
                 customdata=categories,
                 hovertemplate="%{customdata}<br>Node count: %{y:,}<extra></extra>",
-                marker_color="#0f766e",
+                marker_color=[
+                    "#b45309" if category == selected_category else "#0f766e"
+                    for category in categories
+                ],
                 marker_line={"color": "#134e4a", "width": 1},
             )
         ]
@@ -83,6 +93,97 @@ def node_category_bar(
         hoverlabel=BAR_HOVERLABEL,
     )
     return fig
+
+
+def node_attribute_selection(
+    schema: GraphSchema, category: str | None,
+) -> tuple[str, int | None, dict[str, int]]:
+    if category not in {None, ALL_NODE_CATEGORIES_VALUE}:
+        for node in schema.nodes:
+            if node.category == category:
+                return node.category, node.count, node.attributes
+    summary_attributes = schema.nodes_summary.get("attributes")
+    attributes: dict[str, int] = {}
+    if isinstance(summary_attributes, dict):
+        for attribute, count in summary_attributes.items():
+            parsed_count = int_or_none(count)
+            if parsed_count is not None and parsed_count >= 0:
+                attributes[str(attribute)] = parsed_count
+    return "All categories", schema.total_node_count, attributes
+
+
+def matching_node_attributes(
+    attributes: dict[str, int], search: str | None,
+) -> list[tuple[str, int]]:
+    query = (search or "").strip().casefold()
+    return [(attribute, count) for attribute, count in attributes.items()
+            if not query or query in attribute.casefold()]
+
+
+def node_attribute_completeness_bar(
+    attributes: dict[str, int], node_count: int | None, *,
+    search: str | None = None,
+) -> go.Figure:
+    matches = matching_node_attributes(attributes, search)
+    values = matches[:MAX_ATTRIBUTE_TOP_N] if node_count is not None and node_count > 0 else []
+    percentages = [100 * count / node_count for _, count in values] if values else []
+    positions = list(range(len(values)))
+    figure = go.Figure(data=[go.Bar(
+        x=percentages, y=positions, orientation="h",
+        marker_color="#0f766e", marker_line={"color": "#134e4a", "width": 1},
+        customdata=[[attribute, count, node_count] for attribute, count in values],
+        hovertemplate=(
+            "%{customdata[0]}<br>Coverage: %{x:.2f}%"
+            "<br>Nodes with attribute: %{customdata[1]:,}"
+            "<br>Selected node count: %{customdata[2]:,}<extra></extra>"
+        ),
+    )])
+    tiny_values = [(index, attribute, count, percentage)
+                   for index, ((attribute, count), percentage)
+                   in enumerate(zip(values, percentages, strict=True))
+                   if 0 < percentage < 0.1]
+    if tiny_values:
+        figure.add_trace(go.Scatter(
+            x=[percentage for _, _, _, percentage in tiny_values],
+            y=[index for index, _, _, _ in tiny_values], mode="markers",
+            marker={"color": "#0f766e", "size": 8, "symbol": "diamond"},
+            cliponaxis=False, showlegend=False,
+            customdata=[[attribute, count, node_count]
+                        for _, attribute, count, _ in tiny_values],
+            hovertemplate=(
+                "%{customdata[0]}<br>Coverage: %{x:.4f}%"
+                "<br>Nodes with attribute: %{customdata[1]:,}"
+                "<br>Selected node count: %{customdata[2]:,}"
+                "<br>Marker indicates nonzero coverage below 0.1%.<extra></extra>"
+            ),
+        ))
+    figure.update_layout(
+        title="Node Attribute Completeness",
+        xaxis={"title": "Nodes with attribute (%)", "ticksuffix": "%",
+               "range": [0, max(100, max(percentages, default=0))], "fixedrange": True},
+        yaxis={"tickmode": "array", "tickvals": positions,
+               "ticktext": [_truncate_label(attribute) for attribute, _ in values],
+               "autorange": "reversed", "automargin": True,
+               "tickfont": {"size": CONTRIBUTION_LABEL_FONT_SIZE}},
+        margin={"l": 48, "r": 24, "t": 56, "b": 48},
+        height=max(280, 30 * len(values) + 120),
+        bargap=0,
+        bargroupgap=0,
+        hoverlabel=BAR_HOVERLABEL,
+        showlegend=False,
+    )
+    if not values:
+        if node_count is None:
+            message = "Node count unavailable; coverage cannot be calculated."
+        elif node_count <= 0:
+            message = "No nodes in this selection; coverage cannot be calculated."
+        elif not attributes:
+            message = "No node attribute counts are reported for this selection."
+        else:
+            message = "No attributes match your search."
+        figure.add_annotation(text=message, x=0.5, y=0.5, xref="paper", yref="paper",
+                              showarrow=False)
+    return figure
 
 
 def _contribution_chart_height(labels: list[str]) -> int:

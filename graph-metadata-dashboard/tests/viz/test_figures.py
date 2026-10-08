@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
+from graph_metadata_dashboard.constants import ALL_NODE_CATEGORIES_VALUE
 from graph_metadata_dashboard.parsers.graph_metadata import parse_graph_metadata
 from graph_metadata_dashboard.parsers.models import (
     EdgeTriple,
@@ -15,6 +18,8 @@ from graph_metadata_dashboard.viz.figures import (
     count_bar,
     filter_source_predicate_counts,
     knowledge_source_predicate_sankey,
+    node_attribute_completeness_bar,
+    node_attribute_selection,
     node_category_bar,
     predicate_sankey,
     qualifier_counts_for_edges,
@@ -24,6 +29,74 @@ from graph_metadata_dashboard.viz.figures import (
     subject_object_category_pair_bar,
 )
 from tests.conftest import load_fixture
+
+
+def test_node_attribute_selection_uses_summary_or_exact_category() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    assert parsed.schema is not None
+    schema = parsed.schema
+    label, count, attributes = node_attribute_selection(schema, ALL_NODE_CATEGORIES_VALUE)
+    assert label == "All categories"
+    assert count == schema.total_node_count
+    assert attributes == schema.nodes_summary["attributes"]
+    node = schema.nodes[0]
+    assert node_attribute_selection(schema, node.category) == (
+        node.category, node.count, node.attributes,
+    )
+    assert node_attribute_selection(schema, "invalid") == (label, count, attributes)
+
+
+def test_node_attribute_chart_bounds_search_and_reports_exact_coverage() -> None:
+    parsed = parse_graph_metadata(load_fixture("robokopkg.graph-metadata.json"),
+                                  schema_data=load_fixture("robokopkg.schema.json"))
+    assert parsed.schema is not None
+    node = max(parsed.schema.nodes, key=lambda node: len(node.attributes))
+    figure = node_attribute_completeness_bar(node.attributes, node.count)
+    assert len(figure.data[0].x) == min(50, len(node.attributes))
+    assert figure.data[0].orientation == "h"
+    assert figure.layout.bargap == 0
+    assert figure.layout.bargroupgap == 0
+    assert figure.data[0].marker.line.width == 1
+    first_attribute, first_count = next(iter(node.attributes.items()))
+    assert figure.data[0].x[0] == pytest.approx(100 * first_count / node.count)
+    assert list(figure.data[0].customdata[0]) == [first_attribute, first_count, node.count]
+    attributes = {f"attribute-{index}": 2000 - index for index in range(1600)}
+    bounded = node_attribute_completeness_bar(attributes, 2000)
+    assert len(bounded.data[0].x) == 50
+    assert len(bounded.to_json()) < 20000
+    searched = node_attribute_completeness_bar(attributes, 2000, search=" ATTRIBUTE-1599 ")
+    assert list(searched.data[0].x) == [pytest.approx(20.05)]
+    assert list(searched.data[0].customdata[0]) == ["attribute-1599", 401, 2000]
+    assert list(node_attribute_completeness_bar({"absent": 0}, 100).data[0].x) == [0]
+
+
+@pytest.mark.parametrize("attributes,count,search,message", [
+    ({}, 100, None, "No node attribute counts"),
+    ({"name": 100}, 100, "no-match", "No attributes match"),
+    ({"name": 1}, None, None, "Node count unavailable"),
+    ({"name": 0}, 0, None, "No nodes in this selection"),
+])
+def test_node_attribute_chart_empty_states(
+    attributes: dict[str, int], count: int | None, search: str | None, message: str,
+) -> None:
+    figure = node_attribute_completeness_bar(attributes, count, search=search)
+    assert not figure.data[0].x
+    assert message in figure.layout.annotations[0].text
+
+
+def test_tiny_nonzero_attribute_coverage_has_visible_marker_without_distorting_bars() -> None:
+    attributes = {"name": 1000000, "small": 500, "inheritance": 223, "absent": 0}
+    figure = node_attribute_completeness_bar(attributes, 1000000)
+    assert list(figure.data[0].x) == [100, 0.05, 0.0223, 0]
+    assert len(figure.data) == 2
+    assert figure.data[1].type == "scatter"
+    assert list(figure.data[1].x) == [0.05, 0.0223]
+    assert list(figure.data[1].y) == [1, 2]
+    assert figure.data[1].marker.size == 8
+    assert list(figure.data[1].customdata[1]) == ["inheritance", 223, 1000000]
+    assert "%{x:.4f}%" in figure.data[1].hovertemplate
+    zero = node_attribute_completeness_bar({"absent": 0}, 1000000)
+    assert len(zero.data) == 1
 
 
 def test_node_category_bar_shows_all_categories_with_compact_labels() -> None:

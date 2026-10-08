@@ -1392,3 +1392,44 @@ body {
 .contribution-metric-toggle label + label {
   margin-left: 16px;
 }
+.node-attribute-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 1fr);
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.node-attribute-controls > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-attribute-controls label {
+  white-space: nowrap;
+}
+
+.node-attribute-controls .dash-dropdown {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-attribute-controls input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font: inherit;
+}
+
+@media (max-width: 700px) {
+  .node-attribute-controls {
+    grid-template-columns: 1fr;
+  }
+}
+.node-attribute-scroll {
+  overflow-y: auto;
+  min-width: 0;
+}

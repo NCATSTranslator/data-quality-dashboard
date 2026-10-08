@@ -5,8 +5,80 @@ from typing import Any
 from dash import dcc, html
 from plotly.graph_objects import Figure
 
-from graph_metadata_dashboard.parsers.models import ParsedGraphMetadata, SubgraphSource
-from graph_metadata_dashboard.viz.figures import contribution_chart_style, subgraph_contribution_bar
+from graph_metadata_dashboard.constants import ALL_NODE_CATEGORIES_VALUE
+from graph_metadata_dashboard.parsers.models import GraphSchema, ParsedGraphMetadata, SubgraphSource
+from graph_metadata_dashboard.viz.figures import (
+    contribution_chart_style,
+    matching_node_attributes,
+    node_attribute_completeness_bar,
+    node_attribute_selection,
+    node_category_bar,
+    subgraph_contribution_bar,
+)
+
+
+def node_attribute_view(
+    schema: GraphSchema, category: str | None, search: str | None,
+) -> tuple[Figure, str]:
+    label, count, attributes = node_attribute_selection(schema, category)
+    figure = node_attribute_completeness_bar(attributes, count, search=search)
+    figure.update_layout(
+        height=max(figure.layout.height, node_category_bar(schema.nodes).layout.height),
+    )
+    count_text = f"{count:,} nodes" if count is not None else "Node count unavailable"
+    matching_count = len(matching_node_attributes(attributes, search))
+    status = (
+        f"{label} — {count_text}. Showing {len(figure.data[0].x):,} of "
+        f"{matching_count:,} {'matching ' if search and search.strip() else ''}attributes."
+    )
+    if len(figure.data) > 1:
+        status += " Diamonds mark nonzero coverage below 0.1%."
+    return figure, status
+
+
+def node_categories_panel(schema: GraphSchema) -> html.Div:
+    contribution = node_category_bar(schema.nodes)
+    completeness, status = node_attribute_view(
+        schema, ALL_NODE_CATEGORIES_VALUE, None,
+    )
+    return html.Div(className="content-card", children=[
+        html.H3("Node Categories"),
+        html.P("Click a category bar in the Node Category Contribution bar chart or use "
+               "the Category dropdown below to select a node category and explore its "
+               "attributes. Click outside the bars to return to all categories.",
+               className="status-line"),
+        html.Div(className="contribution-panel", children=[dcc.Graph(
+            id="node-category-contribution-chart", figure=contribution, responsive=True,
+            style=contribution_chart_style(contribution),
+        )]),
+        html.Div(className="node-attribute-controls", children=[
+            html.Div(children=[
+                html.Label("Category", htmlFor="node-attribute-category"),
+                dcc.Dropdown(
+                    id="node-attribute-category", value=ALL_NODE_CATEGORIES_VALUE,
+                    clearable=False, options=[
+                        {"label": "All categories", "value": ALL_NODE_CATEGORIES_VALUE},
+                        *[{"label": node.category.replace("biolink:", ""),
+                           "value": node.category}
+                          for node in sorted(schema.nodes, key=lambda node: node.count,
+                                             reverse=True)],
+                    ],
+                ),
+            ]),
+            html.Div(children=[
+                html.Label("Search attributes", htmlFor="node-attribute-search"),
+                dcc.Input(id="node-attribute-search", type="search", value="", debounce=False,
+                          placeholder="Search attribute names"),
+            ]),
+        ]),
+        html.P(id="node-attribute-status", children=status, className="status-line"),
+        html.Div(
+            id="node-attribute-scroll", className="node-attribute-scroll",
+            style={"height": f"{contribution.layout.height}px"},
+            children=[dcc.Graph(id="node-attribute-chart", figure=completeness, responsive=True,
+                                style={"height": f"{completeness.layout.height}px"})],
+        ),
+    ])
 
 
 def provenance_contribution(parsed: ParsedGraphMetadata) -> html.Div:

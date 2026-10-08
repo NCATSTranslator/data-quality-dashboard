@@ -1,6 +1,6 @@
 ---
 name: single-graph-visualizations
-description: Single-graph visualization scope and resolved UI decisions, including contribution-bar sizing, label truncation, category-pair caps, and Sankey cardinality controls. Load before adding or changing any chart/table on the single-graph view, or before deciding how to render a large dict/list from schema.json.
+description: Single-graph visualization scope and resolved UI decisions, including contribution bars, node-attribute completeness drill-down, label truncation, category-pair caps, and Sankey cardinality controls. Load before adding or changing any chart/table on the single-graph view, or before deciding how to render a large dict/list from schema.json.
 ---
 
 # Single-graph visualizations
@@ -24,8 +24,9 @@ not extend to subject-object category pairs or Sankey flows; see the resolved de
    `KGXGraphMetadata.from_dict()`), plus a chart of subgraph contribution from `hasPart` (each
    entry needs `KGXKnowledgeGraphSource.from_dict()` first — see `orion-metadata-format` skill).
 4. **ID-prefix composition per category** (drill-down from #2) from `schema.nodes[].id_prefixes`.
-5. **Attribute fill-rate view per category**, top-N + search. Already sorted descending in the
-   source data, so top-N is a slice, not a sort.
+5. **Node Attribute Completeness**: implemented beneath the node-category contribution chart,
+   linked through bar selection and a category dropdown. Show up to 50 matching attributes with
+   search; use the precomputed descending order, so top-N is a slice, not a sort. See below.
 6. **Predicate Composition panel** has three perspectives: an inline subject-object category
    pair contribution bar, a knowledge-source → predicate Sankey, and a subject-category →
    predicate → object-category Sankey. The pair chart has no Show/Hide toggle or visibility store;
@@ -71,6 +72,12 @@ only, per explicit project scope.
   exist, then schema primary-source counts when subgraph counts are absent. Preserve single-source
   statements instead of drawing a one-bar chart. No top-N/search inputs for these charts or the
   node-category chart in this first pass.
+- Subgraph contribution has a Nodes/Edges radio toggle only when both metrics are available.
+  Default to Nodes, independently rank descending by the selected metric, and exclude missing
+  counts without treating them as zero. Preserve both counts in tooltips. Hide the toggle for
+  single-metric metadata, primary-source fallback, and single-subgraph statements. Reset the
+  metric when the selected graph changes. Keep the toggle centered on the chart title line,
+  clear of Plotly's right-side controls; do not add a separate control row or second chart.
 - Titles count displayed bars, e.g. `29 Subgraph Contribution` or `65 Node Category Contribution`.
   Do not restore the former shown/available/missing-count subtitle.
 - Subject-object pair bars aggregate counts across predicates for each typed category pair,
@@ -83,6 +90,46 @@ only, per explicit project scope.
   rendering bounded. A bounded top-N selector, subject/object filtering, or a paginated table
   are possible follow-ups, not approved first-pass features. Python figure-build timing alone
   does not establish browser rendering performance.
+
+## Node Attribute Completeness
+
+- Reuse `node_categories_panel()` / `node_attribute_view()` in `components/single_graph.py` and
+  `node_attribute_selection()` / `node_attribute_completeness_bar()` in `viz/figures.py`.
+  Callbacks retrieve typed metadata through the session-scoped cache; no metadata payloads
+  belong in browser stores.
+- Default to `ALL_NODE_CATEGORIES_VALUE` (All categories). Use `nodes_summary.attributes` and
+  its reported total node count for this view, not a reaggregation of category data. An exact
+  category selection uses that `NodeCategory`'s attributes and count, including category sets
+  such as `biolink:Protein, biolink:Gene` without splitting or double-counting them.
+- Clicking a category bar updates the dropdown using the full identifier, not truncated tick
+  text. Dropdown selection updates completeness and highlights that bar. Graph changes reset
+  the selection to All categories and clear search. Invalid/stale categories fall back to All
+  categories; malformed clicks and missing/session-mismatched cache entries must not select
+  another graph's category.
+- Background clicks within the contribution chart return to All categories and clear bar
+  highlighting. `assets/node_category_interactions.js` emits a reset through Dash `set_props`
+  on chart `clickData`; ordinary Plotly `clickData` alone does not report background clicks.
+  Preserve bar-target/bounding-box checks for Plotly's overlay, ignore toolbar actions and
+  drag gestures, and use a changing reset sequence so repeated resets trigger callbacks.
+- Category and Search attributes labels sit to the left of their controls on one desktop row;
+  fields stack on narrow screens. No Attributes to show dropdown. Search is case-insensitive,
+  applied before slicing to `MAX_ATTRIBUTE_TOP_N` (50), and uses immediate updates
+  (`debounce=False`) so the native search-clear X restores the unfiltered view without blur
+  or Enter. Clearing search retains the selected category.
+- Horizontal bars use a linear percentage axis: `100 * attribute_count / selected_node_count`.
+  No inter-bar gaps; thin borders separate rows. Truncate attribute tick labels at the existing
+  30-character display limit and retain full names, exact counts, and denominator in tooltips.
+  Missing/zero denominators, absent attribute counts, and unmatched searches have explicit
+  empty states. Coverage is attribute presence, not correctness; optional attributes need not
+  apply everywhere, and overlapping attribute counts cannot establish unique any-attribute
+  coverage.
+- Nonzero coverage below 0.1% gets an 8px diamond at its actual percentage so tiny bars remain
+  discoverable. Do not inflate bar values or mark true zero as nonzero. Marker tooltips use
+  four decimal places and explain the threshold; status text explains the diamonds.
+- The fixed viewport `node-attribute-scroll` matches the contribution chart's adaptive height
+  for the selected graph and stays stable across category/search changes. The inner attribute
+  plot grows with row count, never shorter than that viewport; use vertical overflow scrolling
+  instead of stretching the whole panel or compressing up to 50 rows into the viewport.
 
 ## Retained top-N and validation policy
 
@@ -98,3 +145,12 @@ only, per explicit project scope.
   identifiers, bounded pair payloads with correct total-count titles, and shared container
   sizing. Preserve unavailable-schema and empty-data behavior. Browser appearance/performance
   is a separate check; passing Python tests is not visual confirmation.
+- The current Alliance and `translator_kg_open` fixtures both contain inline schema; keep both
+  for small single-source versus merged-graph coverage. ROBOKOP uses a pointer plus a separate
+  schema fixture. Exercise absent schema through an explicit fixture-derived case rather than
+  relying on the historical Alliance description (see `orion-metadata-format`).
+- Completeness tests cover search clearing, the 50-attribute bound, accurate denominators,
+  tiny/nonzero versus zero coverage, stable scroll viewport, and full-identifier click/dropdown
+  selection. Include JavaScript reset-handler tests for bars, background, toolbar, drag, and
+  repeated clicks, alongside Python callback tests. Metric-toggle tests cover both independent
+  rankings, missing counts, fallback modes, and graph/session changes.

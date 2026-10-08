@@ -38,12 +38,15 @@ from graph_metadata_dashboard.components.comparison import (
 )
 from graph_metadata_dashboard.components.single_graph import (
     contribution_figure,
+    node_attribute_view,
+    node_categories_panel,
     provenance_contribution,
     upload_selection_status,
     url_selection_status,
 )
 from graph_metadata_dashboard.constants import (
     ALL_CATEGORY_SANKEY_TOP_N,
+    ALL_NODE_CATEGORIES_VALUE,
     ALL_SUBJECT_CATEGORIES_VALUE,
     SOURCE_PREDICATE_SANKEY_TOP_N,
     SUBJECT_CATEGORY_SANKEY_TOP_N,
@@ -901,21 +904,64 @@ def register_callbacks(
                     ),
                 ],
             )
-        figure = node_category_bar(parsed.schema.nodes)
-        return html.Div(
-            className="content-card",
-            children=[
-                html.H3("Node Categories"),
-                html.Div(
-                    className="contribution-panel",
-                    children=[dcc.Graph(
-                        figure=figure,
-                        responsive=True,
-                        style=contribution_chart_style(figure),
-                    )],
-                ),
-            ],
+        return node_categories_panel(parsed.schema)
+
+    @app.callback(
+        Output("node-attribute-category", "value"),
+        Input("node-category-contribution-chart", "clickData"),
+        State("loaded-graph-state", "data"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def select_node_attribute_category(
+        click_data: dict[str, Any] | None,
+        graph_states: list[GraphState] | GraphState | None,
+        session_id: str | None,
+    ) -> str:
+        parsed = _get_cached_graph(
+            cache, session_id, _single_graph_state(_normalize_graph_states(graph_states)),
         )
+        if parsed is None or parsed.schema is None or not click_data:
+            raise PreventUpdate
+        if click_data.get("reset") is True:
+            return ALL_NODE_CATEGORIES_VALUE
+        points = click_data.get("points")
+        if not isinstance(points, list) or not points or not isinstance(points[0], dict):
+            raise PreventUpdate
+        category = points[0].get("customdata", points[0].get("x"))
+        if not isinstance(category, str) or not any(
+            node.category == category for node in parsed.schema.nodes
+        ):
+            raise PreventUpdate
+        return category
+
+    @app.callback(
+        Output("node-attribute-chart", "figure"),
+        Output("node-attribute-chart", "style"),
+        Output("node-attribute-status", "children"),
+        Output("node-attribute-scroll", "style"),
+        Output("node-category-contribution-chart", "figure"),
+        Input("node-attribute-category", "value"),
+        Input("node-attribute-search", "value"),
+        State("loaded-graph-state", "data"),
+        State("session-id", "data"),
+        prevent_initial_call=True,
+    )
+    def update_node_attributes(
+        category: str | None, search: str | None,
+        graph_states: list[GraphState] | GraphState | None, session_id: str | None,
+    ) -> Any:
+        parsed = _get_cached_graph(
+            cache, session_id, _single_graph_state(_normalize_graph_states(graph_states)),
+        )
+        if parsed is None or parsed.schema is None:
+            raise PreventUpdate
+        if category not in {node.category for node in parsed.schema.nodes}:
+            category = ALL_NODE_CATEGORIES_VALUE
+        figure, status = node_attribute_view(parsed.schema, category, search)
+        contribution = node_category_bar(parsed.schema.nodes, selected_category=category)
+        return (figure, {"height": f"{figure.layout.height}px"}, status,
+                {"height": f"{contribution.layout.height}px"}, contribution)
 
     @app.callback(
         Output("sankey-action-card", "style"),
