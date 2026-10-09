@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 
 from graph_metadata_dashboard.constants import (
     ALL_NODE_CATEGORIES_VALUE,
+    DEFAULT_SANKEY_TOP_N,
     DEFAULT_TOP_COUNT,
     MAX_ATTRIBUTE_TOP_N,
 )
@@ -495,7 +496,7 @@ def sankey_highlight_colors(
 def predicate_sankey(
     edges: tuple[EdgeTriple, ...],
     *,
-    top_n: int | None = DEFAULT_TOP_COUNT,
+    top_n: int | None = DEFAULT_SANKEY_TOP_N,
     subject_filter: str | None = None,
     object_filters: Collection[str] | None = None,
     predicate_filters: Collection[str] | None = None,
@@ -631,15 +632,13 @@ def predicate_sankey(
 def knowledge_source_predicate_sankey(
     counts: tuple[KnowledgeSourcePredicateCount, ...],
     *,
-    top_n_sources: int | None = 100,
-    top_n_predicates: int | None = 100,
+    top_n: int | None = DEFAULT_SANKEY_TOP_N,
     selected_node_label: str | None = None,
 ) -> go.Figure:
     source_color = _assign_palette(sorted({count.source for count in counts}))
     collapsed = _collapse_source_predicate_counts(
         counts,
-        top_n_sources=top_n_sources,
-        top_n_predicates=top_n_predicates,
+        top_n=top_n,
     )
     labels = _source_predicate_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
@@ -1019,39 +1018,21 @@ def _str_list(value: object) -> list[str]:
 def _collapse_source_predicate_counts(
     counts: tuple[KnowledgeSourcePredicateCount, ...],
     *,
-    top_n_sources: int | None,
-    top_n_predicates: int | None,
+    top_n: int | None,
 ) -> list[tuple[str, str, int]]:
-    source_totals: defaultdict[str, int] = defaultdict(int)
-    predicate_totals: defaultdict[str, int] = defaultdict(int)
-    for count in counts:
-        source_totals[count.source] += count.count
-        predicate_totals[count.predicate] += count.count
-
-    selected_sources = _top_labels(source_totals, top_n=top_n_sources)
-    selected_predicates = _top_labels(predicate_totals, top_n=top_n_predicates)
     collapsed: defaultdict[tuple[str, str], int] = defaultdict(int)
     for count in counts:
-        source = count.source if count.source in selected_sources else OTHER_LABEL
-        predicate = count.predicate if count.predicate in selected_predicates else OTHER_LABEL
-        collapsed[(source, predicate)] += count.count
-
-    return [
+        collapsed[(count.source, count.predicate)] += count.count
+    ranked = [
         (source, predicate, count)
         for (source, predicate), count in sorted(
             collapsed.items(),
-            key=lambda item: (item[0][0] == OTHER_LABEL, -item[1], item[0][0], item[0][1]),
+            key=lambda item: (-item[1], item[0][0], item[0][1]),
         )
     ]
-
-
-def _top_labels(counts: dict[str, int], *, top_n: int | None) -> set[str]:
     if top_n is None or top_n < 0:
-        return set(counts)
-    return {
-        label
-        for label, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:top_n]
-    }
+        return ranked
+    return ranked[:top_n]
 
 
 def _collapse_edges(

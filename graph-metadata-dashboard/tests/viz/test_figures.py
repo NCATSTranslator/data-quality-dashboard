@@ -831,7 +831,7 @@ def test_knowledge_source_predicate_sankey_can_highlight_from_displayed_node_lab
     assert str(figure.data[0].link.color[1]).endswith(", 0.06)")
 
 
-def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
+def test_knowledge_source_predicate_sankey_limits_connections_without_other_bucket() -> None:
     counts = tuple(
         KnowledgeSourcePredicateCount(
             source=f"infores:source-{index}",
@@ -843,15 +843,45 @@ def test_knowledge_source_predicate_sankey_collapses_other_bucket() -> None:
 
     figure = knowledge_source_predicate_sankey(
         counts,
-        top_n_sources=2,
-        top_n_predicates=2,
+        top_n=2,
     )
 
     labels = list(figure.data[0].node.label)
     hover_labels = [customdata[0] for customdata in figure.data[0].node.customdata]
-    assert "Other" in labels
-    assert "Source: Other" in hover_labels
-    assert "Predicate: Other" in hover_labels
+    assert "Other" not in labels
+    assert len(figure.data[0].link.value) == 2
+    assert "Source: infores:source-2" not in hover_labels
+    assert [row[2] for row in figure.data[0].link.customdata] == ["100", "99"]
+    for top_n in (None, -1, 5, 1000):
+        expanded = knowledge_source_predicate_sankey(counts, top_n=top_n)
+        assert len(expanded.data[0].link.value) == 5
+        assert "Other" not in expanded.data[0].node.label
+
+
+def test_knowledge_source_predicate_sankey_ranks_aggregated_connections() -> None:
+    counts = (
+        KnowledgeSourcePredicateCount("infores:a", "biolink:p", 30),
+        KnowledgeSourcePredicateCount("infores:a", "biolink:p", 40),
+        KnowledgeSourcePredicateCount("infores:b", "biolink:p", 60),
+        KnowledgeSourcePredicateCount("infores:a", "biolink:q", 50),
+    )
+    figure = knowledge_source_predicate_sankey(counts, top_n=2)
+    assert [list(row) for row in figure.data[0].link.customdata] == [
+        ["infores:a", "biolink:p", "70"], ["infores:b", "biolink:p", "60"],
+    ]
+
+
+def test_both_sankey_figures_default_to_100_patterns() -> None:
+    parsed = parse_graph_metadata(load_fixture("translator_kg_open.graph-metadata.json"))
+    template = parsed.schema.edges[0]
+    edges = tuple(replace(template, predicate=f"biolink:p{index}", count=150-index)
+                  for index in range(150))
+    counts = tuple(KnowledgeSourcePredicateCount("infores:a", f"biolink:p{index}", 150-index)
+                   for index in range(150))
+    assert len(predicate_sankey(edges).data[0].link.value) == 200
+    assert len(knowledge_source_predicate_sankey(counts).data[0].link.value) == 100
+    assert len(predicate_sankey(edges, top_n=150).data[0].link.value) == 300
+    assert len(knowledge_source_predicate_sankey(counts, top_n=150).data[0].link.value) == 150
 
 
 def test_count_bar_limits_top_n() -> None:

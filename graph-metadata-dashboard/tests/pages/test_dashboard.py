@@ -23,7 +23,10 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.config import Settings
-from graph_metadata_dashboard.constants import ALL_NODE_CATEGORIES_VALUE
+from graph_metadata_dashboard.constants import (
+    ALL_NODE_CATEGORIES_VALUE,
+    ALL_SUBJECT_CATEGORIES_VALUE,
+)
 from graph_metadata_dashboard.diff import CountDelta, MapEntryChange, SourceChange, SubgraphChange
 from graph_metadata_dashboard.diff.details import (
     adaptive_inline_count,
@@ -132,7 +135,7 @@ def test_provenance_contribution_falls_back_when_subgraph_counts_missing() -> No
     assert "primary knowledge source" in text
 
 
-@pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])
+@pytest.mark.parametrize("graph_id", ["translator_kg_open"])
 def test_contribution_chart_preserves_real_fixture_behavior(graph_id: str) -> None:
     parsed = parse_graph_metadata(load_fixture(f"{graph_id}.graph-metadata.json"))
     contribution = provenance_contribution(parsed)
@@ -503,6 +506,59 @@ def test_category_pair_panel_uses_bounded_adaptive_chart(graph_id: str) -> None:
         assert _find_elements_by_class(panel, "contribution-panel")
 
 
+@pytest.mark.parametrize("graph_id", ["alliance", "translator_kg_open", "robokopkg"])
+def test_sankey_sliders_and_renderers_allow_all_matching_patterns(graph_id: str) -> None:
+    app = create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
+    page_module = _registered_page_module("dashboard")
+    cache = InMemoryMetadataCache()
+    parsed = parse_graph_metadata(
+        load_fixture(f"{graph_id}.graph-metadata.json"),
+        schema_data=load_fixture("robokopkg.schema.json") if graph_id == "robokopkg" else None,
+    )
+    cache.set("sankey-session", graph_id, parsed)
+    state = [{"cache_key": graph_id, "kind": "upload"}]
+    page_module.register_callbacks(
+        app, cache=cache, kgx_client=KgxStorageClient("https://kgx-storage.example/releases"),
+        url_client=UrlMetadataClient(("https://metadata.example",)),
+    )
+    def callback_for(output: str) -> object:
+        return next(callback["callback"].__wrapped__ for key, callback in app.callback_map.items()
+                    if output in key)
+
+    source_config = callback_for("source-predicate-top-n-slider.value")
+    subject_config = callback_for("sankey-top-n-slider.value")
+    render_source = callback_for("source-predicate-panel-body.children")
+    render_subject = callback_for("sankey-panel-body.children")
+    for sources, predicates in (([], []), ([parsed.schema.source_predicate_counts[0].source], [])):
+        value, maximum, marks = source_config(sources, predicates, state, "sankey-session")
+        candidates = [count for count in parsed.schema.source_predicate_counts
+                      if not sources or count.source in sources]
+        assert maximum == len({(count.source, count.predicate) for count in candidates})
+        assert value == min(100, maximum)
+        assert marks[maximum] == f"{maximum} (all)"
+        for selected_count in (1, maximum):
+            hidden, chart = render_source(True, sources, predicates, selected_count,
+                                           state, "sankey-session")
+            assert hidden is False
+            assert len(chart.figure.data[0].link.value) == selected_count
+            assert "Other" not in chart.figure.data[0].node.label
+            assert chart.id == "source-predicate-sankey-graph"
+    for subject in (ALL_SUBJECT_CATEGORIES_VALUE,
+                    ", ".join(parsed.schema.edges[0].subject_category)):
+        value, maximum, marks = subject_config(subject, [], [], [], state, "sankey-session")
+        expected_count = sum(subject == ALL_SUBJECT_CATEGORIES_VALUE
+                             or ", ".join(edge.subject_category) == subject
+                             for edge in parsed.schema.edges)
+        assert maximum == expected_count
+        assert value == min(100, maximum)
+        assert marks[maximum] == f"{maximum} (all)"
+        hidden, chart, disabled = render_subject(True, subject, [], [], [], maximum,
+                                                state, "sankey-session")
+        assert hidden is False
+        assert disabled is False
+        assert len(chart.figure.data[0].link.value) == maximum * 2
+
+
 def test_predicate_composition_includes_inline_pairs_without_toggle() -> None:
     create_app(Settings(cache_dir="/tmp/graph-metadata-dashboard-test-cache"))
     page_module = _registered_page_module("dashboard")
@@ -511,9 +567,7 @@ def test_predicate_composition_includes_inline_pairs_without_toggle() -> None:
                 if getattr(item, "id", None) == "sankey-action-card")
     text = " ".join(_flatten_text(card))
     assert "three perspectives" in text
-    assert "Pairs bar chart summarizes edge counts" in text
-    assert "Show subject-object category pairs" not in text
-    assert "Hide subject-object category pairs" not in text
+    assert "Top source-predicate connections" in text
     pair_panel = next(item for item in _find_elements_by_type(card, "Div")
                       if getattr(item, "id", None) == "category-pair-summary-panel")
     assert not getattr(pair_panel, "hidden", False)

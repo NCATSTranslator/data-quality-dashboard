@@ -35,9 +35,9 @@ not extend to subject-object category pairs or Sankey flows; see the resolved de
    sized by edge count) — a genuinely useful, proven visualization for KG edge composition, worth
    matching or improving on the existing ROBOKOP KG page's Sankey view, not skipping. Data source
    is `schema.edges[]`. **Cardinality is a real problem at ROBOKOP scale** — a merged graph
-   produces far too many subject/predicate/object combinations to read unfiltered. Apply top-N /
-   collapse the long tail into an "Other" bucket, and consider letting the user filter to a
-   specific subject or object category first. Don't ship the naive "one flow per triple" version.
+   produces far too many subject/predicate/object combinations to read unfiltered. Default to
+   top-N after filtering; users may explicitly expand the slider to all matching triples even
+   if that becomes crowded. Do not group omitted patterns into an "Other" bucket.
 7. **Knowledge-source predicate composition**: using
    `schema["edges_summary"]["predicates_by_knowledge_source"]` (already aggregated by ORION).
    Implemented
@@ -134,12 +134,14 @@ only, per explicit project scope.
 ## Retained top-N and validation policy
 
 - Do not remove `DEFAULT_TOP_COUNT` just because subgraph and node-category bars no longer use
-  it. It still supplies defaults for category pairs, generic count bars, and predicate-Sankey
-  figure/selection helpers.
-- Preserve the separate Sankey UI defaults: `ALL_CATEGORY_SANKEY_TOP_N = 40`,
-  `SUBJECT_CATEGORY_SANKEY_TOP_N = 200`, and `SOURCE_PREDICATE_SANKEY_TOP_N = 100`. Keep existing
-  filters and adjustable sliders. Dense crossing links do not become legible merely by adding
-  scrolling or increasing height; do not automatically render every flow.
+  it. It still supplies defaults for category pairs and generic count bars.
+- Both Sankeys use `DEFAULT_SANKEY_TOP_N = 100` in the UI and figure helpers, not a hard maximum.
+  The source-predicate slider selects the top N distinct source-predicate connections by summed
+  edge count, not N sources and N predicates. The subject-predicate-object slider selects N
+  category triples by edge count. Apply dropdown filters before ranking, omit the remaining
+  patterns without Other grouping, and preserve exact tooltip counts and adaptive width scaling.
+  Slider maxima follow the number of matching connections/triples, allowing an explicit "all"
+  selection even if crowded. Preserve filters and highlighting; do not automatically show all.
 - Validate changes in `tests/viz/test_figures.py` and `tests/pages/test_dashboard.py`, covering
   all three real fixture tiers, labels at/beyond the truncation boundary, full prefixed hover
   identifiers, bounded pair payloads with correct total-count titles, and shared container

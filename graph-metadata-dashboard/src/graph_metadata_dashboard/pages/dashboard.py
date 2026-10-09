@@ -45,11 +45,9 @@ from graph_metadata_dashboard.components.single_graph import (
     url_selection_status,
 )
 from graph_metadata_dashboard.constants import (
-    ALL_CATEGORY_SANKEY_TOP_N,
     ALL_NODE_CATEGORIES_VALUE,
     ALL_SUBJECT_CATEGORIES_VALUE,
-    SOURCE_PREDICATE_SANKEY_TOP_N,
-    SUBJECT_CATEGORY_SANKEY_TOP_N,
+    DEFAULT_SANKEY_TOP_N,
 )
 from graph_metadata_dashboard.diff import compare, schema_diff_download_payload
 from graph_metadata_dashboard.loaders.kgx_storage import (
@@ -343,20 +341,20 @@ def layout() -> html.Div:
                                                 className="sankey-slider-field",
                                                 children=[
                                                     html.Label(
-                                                        "Top sources and predicates",
+                                                        "Top source-predicate connections",
                                                         htmlFor="source-predicate-top-n-slider",
                                                     ),
                                                     dcc.Slider(
                                                         id="source-predicate-top-n-slider",
                                                         min=1,
-                                                        max=SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                        max=DEFAULT_SANKEY_TOP_N,
                                                         step=1,
-                                                        value=SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                        value=DEFAULT_SANKEY_TOP_N,
                                                         updatemode="mouseup",
                                                         marks=_sankey_slider_marks(
-                                                            SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                            DEFAULT_SANKEY_TOP_N,
                                                             defaults=(
-                                                                SOURCE_PREDICATE_SANKEY_TOP_N,
+                                                                DEFAULT_SANKEY_TOP_N,
                                                             ),
                                                         ),
                                                         tooltip={
@@ -459,15 +457,14 @@ def layout() -> html.Div:
                                                     dcc.Slider(
                                                         id="sankey-top-n-slider",
                                                         min=1,
-                                                        max=SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                        max=DEFAULT_SANKEY_TOP_N,
                                                         step=1,
-                                                        value=SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                        value=DEFAULT_SANKEY_TOP_N,
                                                         updatemode="mouseup",
                                                         marks=_sankey_slider_marks(
-                                                            SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                            DEFAULT_SANKEY_TOP_N,
                                                             defaults=(
-                                                                ALL_CATEGORY_SANKEY_TOP_N,
-                                                                SUBJECT_CATEGORY_SANKEY_TOP_N,
+                                                                DEFAULT_SANKEY_TOP_N,
                                                             ),
                                                         ),
                                                         tooltip={
@@ -1130,7 +1127,7 @@ def register_callbacks(
             if selected_subject in {None, ALL_SUBJECT_CATEGORIES_VALUE}
             else selected_subject
         )
-        default_top_n = _predicate_sankey_top_n(subject_filter)
+        default_top_n = DEFAULT_SANKEY_TOP_N
         graph_state = _single_graph_state(_normalize_graph_states(graph_states))
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
@@ -1151,7 +1148,7 @@ def register_callbacks(
         return _sankey_slider_config(
             default_top_n,
             max_top_n,
-            defaults=(ALL_CATEGORY_SANKEY_TOP_N, SUBJECT_CATEGORY_SANKEY_TOP_N),
+            defaults=(DEFAULT_SANKEY_TOP_N,),
         )
 
     @app.callback(
@@ -1173,27 +1170,27 @@ def register_callbacks(
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
             return _sankey_slider_config(
-                SOURCE_PREDICATE_SANKEY_TOP_N,
-                SOURCE_PREDICATE_SANKEY_TOP_N,
+                DEFAULT_SANKEY_TOP_N,
+                DEFAULT_SANKEY_TOP_N,
             )
         parsed = _ensure_schema_loaded(
             cache, kgx_client, url_client, session_id, graph_state, parsed
         )
         if parsed.schema is None:
             return _sankey_slider_config(
-                SOURCE_PREDICATE_SANKEY_TOP_N,
-                SOURCE_PREDICATE_SANKEY_TOP_N,
+                DEFAULT_SANKEY_TOP_N,
+                DEFAULT_SANKEY_TOP_N,
             )
         filtered_counts = filter_source_predicate_counts(
             parsed.schema.source_predicate_counts,
             source_filters=_dropdown_values(selected_sources),
             predicate_filters=_dropdown_values(selected_predicates),
         )
-        max_top_n = _source_predicate_top_n_limit(filtered_counts)
+        max_top_n = max(1, len({(count.source, count.predicate) for count in filtered_counts}))
         return _sankey_slider_config(
-            SOURCE_PREDICATE_SANKEY_TOP_N,
+            DEFAULT_SANKEY_TOP_N,
             max_top_n,
-            defaults=(SOURCE_PREDICATE_SANKEY_TOP_N,),
+            defaults=(DEFAULT_SANKEY_TOP_N,),
         )
 
     @app.callback(
@@ -1260,13 +1257,9 @@ def register_callbacks(
                 id="source-predicate-sankey-graph",
                 figure=knowledge_source_predicate_sankey(
                     filtered_counts,
-                    top_n_sources=_slider_top_n(
+                    top_n=_slider_top_n(
                         top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
-                    ),
-                    top_n_predicates=_slider_top_n(
-                        top_n_value,
-                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
+                        default=DEFAULT_SANKEY_TOP_N,
                     ),
                 ),
                 className="inline-sankey-graph",
@@ -1334,7 +1327,7 @@ def register_callbacks(
         )
         top_n = _slider_top_n(
             top_n_value,
-            default=_predicate_sankey_top_n(subject_filter),
+            default=DEFAULT_SANKEY_TOP_N,
         )
         if subject_filter is None and selected_subject != ALL_SUBJECT_CATEGORIES_VALUE:
             return True, "", False
@@ -1724,20 +1717,6 @@ def _dropdown_values(value: list[str] | str | None) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(item for item in value if isinstance(item, str))
     return ()
-
-
-def _predicate_sankey_top_n(subject_filter: str | None) -> int:
-    if subject_filter is None:
-        return ALL_CATEGORY_SANKEY_TOP_N
-    return SUBJECT_CATEGORY_SANKEY_TOP_N
-
-
-def _source_predicate_top_n_limit(
-    counts: tuple[KnowledgeSourcePredicateCount, ...],
-) -> int:
-    sources = {count.source for count in counts}
-    predicates = {count.predicate for count in counts}
-    return max(1, len(sources), len(predicates))
 
 
 def _sankey_slider_config(
