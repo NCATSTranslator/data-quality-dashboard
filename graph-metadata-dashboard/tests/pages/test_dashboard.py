@@ -526,11 +526,19 @@ def test_sankey_sliders_and_renderers_allow_all_matching_patterns(graph_id: str)
                     if output in key)
 
     source_config = callback_for("source-predicate-top-n-slider.value")
+    subject_dropdown = callback_for("sankey-subject-category-dropdown.value")
+    options, selected_subject, disabled = subject_dropdown(state, "sankey-session")
+    assert selected_subject == ALL_SUBJECT_CATEGORIES_VALUE
+    assert options[0] == {"label": "All categories", "value": ALL_SUBJECT_CATEGORIES_VALUE}
+    assert disabled is False
+    assert subject_dropdown([], "sankey-session") == ([], None, True)
     subject_config = callback_for("sankey-top-n-slider.value")
     render_source = callback_for("source-predicate-panel-body.children")
     render_subject = callback_for("sankey-panel-body.children")
     for sources, predicates in (([], []), ([parsed.schema.source_predicate_counts[0].source], [])):
-        value, maximum, marks = source_config(sources, predicates, state, "sankey-session")
+        value, maximum, marks, _ = source_config(
+            sources, predicates, state, 100, "sankey-session", None,
+        )
         candidates = [count for count in parsed.schema.source_predicate_counts
                       if not sources or count.source in sources]
         assert maximum == len({(count.source, count.predicate) for count in candidates})

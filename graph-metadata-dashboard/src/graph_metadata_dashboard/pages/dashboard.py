@@ -379,11 +379,11 @@ def layout() -> html.Div:
                                         children=[
                                             html.H4("Subject to Predicate to Object"),
                                             html.P(
-                                                "A subject category-scoped three-column chart. "
-                                                "Choose one subject category to view relationship "
-                                                "triples within that selected subject category, or "
-                                                'select "All categories" to view triples across the '
-                                                "whole graph. Filter by source, predicate, and "
+                                                "A three-column chart showing relationship triples "
+                                                "across all subject categories by default. "
+                                                "Choose a subject category to narrow the view. "
+                                                "Filter by "
+                                                "source, predicate, and "
                                                 "object category, and use the slider to control "
                                                 "how many highest-count triples are shown.",
                                                 className="status-line",
@@ -1032,8 +1032,7 @@ def register_callbacks(
             return [], None, True
 
         options = _subject_category_options(parsed.schema.edges)
-        default_value = options[1]["value"] if len(options) > 1 else ALL_SUBJECT_CATEGORIES_VALUE
-        return options, default_value, False
+        return options, ALL_SUBJECT_CATEGORIES_VALUE, False
 
     @app.callback(
         Output("source-predicate-source-filter", "options"),
