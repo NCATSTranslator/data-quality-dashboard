@@ -640,6 +640,11 @@ def knowledge_source_predicate_sankey(
         counts,
         top_n=top_n,
     )
+    total_connections = len({(count.source, count.predicate) for count in counts})
+    selection_label = (
+        f"Top {len(collapsed):,} of {total_connections:,}"
+        if len(collapsed) < total_connections else f"All {total_connections:,}"
+    )
     labels = _source_predicate_labels(collapsed)
     index = {label: position for position, label in enumerate(labels)}
     selected_node_index = _sankey_selected_node_index(labels, selected_node_label)
@@ -725,7 +730,7 @@ def knowledge_source_predicate_sankey(
         ]
     )
     fig.update_layout(
-        title="Knowledge Source to Predicate Sankey Chart",
+        title=f"Knowledge Source to Predicate Sankey Chart ({selection_label} connections)",
         height=_columnar_sankey_height(max_column_nodes, node_pad),
         font={"size": 12},
         margin={"l": 24, "r": 24, "t": 56, "b": 24},

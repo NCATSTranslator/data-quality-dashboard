@@ -852,10 +852,12 @@ def test_knowledge_source_predicate_sankey_limits_connections_without_other_buck
     assert len(figure.data[0].link.value) == 2
     assert "Source: infores:source-2" not in hover_labels
     assert [row[2] for row in figure.data[0].link.customdata] == ["100", "99"]
+    assert figure.layout.title.text.endswith("(Top 2 of 5 connections)")
     for top_n in (None, -1, 5, 1000):
         expanded = knowledge_source_predicate_sankey(counts, top_n=top_n)
         assert len(expanded.data[0].link.value) == 5
         assert "Other" not in expanded.data[0].node.label
+        assert expanded.layout.title.text.endswith("(All 5 connections)")
 
 
 def test_knowledge_source_predicate_sankey_ranks_aggregated_connections() -> None:
@@ -869,6 +871,7 @@ def test_knowledge_source_predicate_sankey_ranks_aggregated_connections() -> Non
     assert [list(row) for row in figure.data[0].link.customdata] == [
         ["infores:a", "biolink:p", "70"], ["infores:b", "biolink:p", "60"],
     ]
+    assert figure.layout.title.text.endswith("(Top 2 of 3 connections)")
 
 
 def test_both_sankey_figures_default_to_100_patterns() -> None:

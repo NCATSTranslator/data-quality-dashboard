@@ -82,6 +82,7 @@ def layout() -> html.Div:
         children=[
             dcc.Store(id="loaded-graph-state", storage_type="session"),
             dcc.Store(id="source-predicate-sankey-visible"),
+            dcc.Store(id="source-predicate-slider-selection"),
             dcc.Store(id="subject-sankey-visible"),
             dcc.Download(id="schema-diff-download"),
             dcc.Download(id="comparison-report-download"),
@@ -379,20 +380,27 @@ def layout() -> html.Div:
                                             html.H4("Subject to Predicate to Object"),
                                             html.P(
                                                 "A subject category-scoped three-column chart. "
-                                                "Choose one subject category to view "
-                                                "relationship triples within that selected "
-                                                "subject category, or select "
-                                                '"All categories"  to view relationship '
-                                                "triples across the whole graph. Refine by source, "
-                                                "predicate, and object category, then use the "
-                                                "slider to control how many highest-count triples "
-                                                "are shown.",
+                                                "Choose one subject category to view relationship "
+                                                "triples within that selected subject category, or "
+                                                'select "All categories" to view triples across the '
+                                                "whole graph. Filter by source, predicate, and "
+                                                "object category, and use the slider to control "
+                                                "how many highest-count triples are shown.",
                                                 className="status-line",
                                             ),
-                                            dcc.Dropdown(
-                                                id="sankey-subject-category-dropdown",
-                                                placeholder="Select subject category",
-                                                clearable=False,
+                                            html.Div(
+                                                className="sankey-subject-category-field",
+                                                children=[
+                                                    html.Label(
+                                                        "Subject category",
+                                                        htmlFor="sankey-subject-category-dropdown",
+                                                    ),
+                                                    dcc.Dropdown(
+                                                        id="sankey-subject-category-dropdown",
+                                                        placeholder="Select subject category",
+                                                        clearable=False,
+                                                    ),
+                                                ],
                                             ),
                                             html.Div(
                                                 className=(
@@ -1155,43 +1163,51 @@ def register_callbacks(
         Output("source-predicate-top-n-slider", "value"),
         Output("source-predicate-top-n-slider", "max"),
         Output("source-predicate-top-n-slider", "marks"),
+        Output("source-predicate-slider-selection", "data"),
         Input("source-predicate-source-filter", "value"),
         Input("source-predicate-predicate-filter", "value"),
         Input("loaded-graph-state", "data"),
+        Input("source-predicate-top-n-slider", "value"),
         State("session-id", "data"),
+        State("source-predicate-slider-selection", "data"),
     )
     def configure_source_predicate_top_n_slider(
         selected_sources: list[str] | str | None,
         selected_predicates: list[str] | str | None,
         graph_states: list[GraphState] | GraphState | None,
+        slider_value: int | float | None,
         session_id: str | None,
-    ) -> tuple[int, int, dict[int, str]]:
+        selection: dict[str, int] | None,
+    ) -> tuple[int, int, dict[int, str], dict[str, int]]:
+        requested = DEFAULT_SANKEY_TOP_N
+        if selection and callback_context.triggered_id != "loaded-graph-state":
+            requested = selection.get("requested", DEFAULT_SANKEY_TOP_N)
+            if (callback_context.triggered_id == "source-predicate-top-n-slider"
+                    and slider_value != selection.get("displayed")):
+                requested = _slider_top_n(slider_value, default=requested)
         graph_state = _single_graph_state(_normalize_graph_states(graph_states))
         parsed = _get_cached_graph(cache, session_id, graph_state)
         if parsed is None:
-            return _sankey_slider_config(
-                DEFAULT_SANKEY_TOP_N,
-                DEFAULT_SANKEY_TOP_N,
-            )
+            value, maximum, marks = _sankey_slider_config(requested, DEFAULT_SANKEY_TOP_N)
+            return value, maximum, marks, {"requested": requested, "displayed": value}
         parsed = _ensure_schema_loaded(
             cache, kgx_client, url_client, session_id, graph_state, parsed
         )
         if parsed.schema is None:
-            return _sankey_slider_config(
-                DEFAULT_SANKEY_TOP_N,
-                DEFAULT_SANKEY_TOP_N,
-            )
+            value, maximum, marks = _sankey_slider_config(requested, DEFAULT_SANKEY_TOP_N)
+            return value, maximum, marks, {"requested": requested, "displayed": value}
         filtered_counts = filter_source_predicate_counts(
             parsed.schema.source_predicate_counts,
             source_filters=_dropdown_values(selected_sources),
             predicate_filters=_dropdown_values(selected_predicates),
         )
         max_top_n = max(1, len({(count.source, count.predicate) for count in filtered_counts}))
-        return _sankey_slider_config(
-            DEFAULT_SANKEY_TOP_N,
+        value, maximum, marks = _sankey_slider_config(
+            requested,
             max_top_n,
             defaults=(DEFAULT_SANKEY_TOP_N,),
         )
+        return value, maximum, marks, {"requested": requested, "displayed": value}
 
     @app.callback(
         Output("source-predicate-sankey-visible", "data"),

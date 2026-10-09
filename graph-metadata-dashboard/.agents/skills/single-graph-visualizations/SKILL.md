@@ -142,6 +142,11 @@ only, per explicit project scope.
   patterns without Other grouping, and preserve exact tooltip counts and adaptive width scaling.
   Slider maxima follow the number of matching connections/triples, allowing an explicit "all"
   selection even if crowded. Preserve filters and highlighting; do not automatically show all.
+- Source-predicate titles show the actual selection and matching total, e.g. "Top 100 of 127
+  connections" or "All 127 connections". Preserve the requested slider count while filters
+  temporarily clamp the displayed count; restore it when filters clear. A memory-only browser
+  store may hold these two UI integers, never metadata. Reset the choice on graph selection
+  changes. Ignore programmatic slider clamps when updating the remembered request.
 - Validate changes in `tests/viz/test_figures.py` and `tests/pages/test_dashboard.py`, covering
   all three real fixture tiers, labels at/beyond the truncation boundary, full prefixed hover
   identifiers, bounded pair payloads with correct total-count titles, and shared container

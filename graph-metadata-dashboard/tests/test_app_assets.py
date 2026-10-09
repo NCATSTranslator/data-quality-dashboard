@@ -11,6 +11,7 @@ def test_stylesheet_is_served() -> None:
     assert response.status_code == 200
     assert b".app-shell" in response.data
     assert b"input:invalid ~ .heatmap-row-limit-error" in response.data
+    assert b".sankey-subject-category-field" in response.data
 
 
 def test_sankey_interactions_script_is_served() -> None:

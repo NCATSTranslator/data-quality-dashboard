@@ -277,8 +277,24 @@ body {
   gap: 0.35rem;
 }
 
+.sankey-subject-category-field {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.sankey-subject-category-field label {
+  white-space: nowrap;
+}
+
+.sankey-subject-category-field .dash-dropdown {
+  flex: 1;
+  min-width: 0;
+}
+
 .sankey-slider-field label,
-.sankey-filter-field label {
+.sankey-filter-field label,
+.sankey-subject-category-field label {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
