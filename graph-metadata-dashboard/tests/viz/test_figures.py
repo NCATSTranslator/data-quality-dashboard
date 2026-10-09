@@ -16,15 +16,14 @@ from graph_metadata_dashboard.viz.figures import (
     SANKEY_DEFAULT_NODE_PAD,
     contribution_chart_style,
     count_bar,
+    filter_predicate_sankey_edges,
     filter_source_predicate_counts,
     knowledge_source_predicate_sankey,
     node_attribute_completeness_bar,
     node_attribute_selection,
     node_category_bar,
     predicate_sankey,
-    qualifier_counts_for_edges,
     sankey_highlight_colors,
-    selected_predicate_sankey_edges,
     subgraph_contribution_bar,
     subject_object_category_pair_bar,
 )
@@ -473,7 +472,7 @@ def test_predicate_sankey_filters_by_source_predicate_and_object_category() -> N
     assert figure.data[0].link.customdata[0][1] == "30"
 
 
-def test_selected_predicate_sankey_edges_preserve_qualifier_context() -> None:
+def test_predicate_sankey_source_filter_preserves_edge_metadata() -> None:
     edges = (
         EdgeTriple(
             subject_category=("biolink:Gene",),
@@ -499,16 +498,14 @@ def test_selected_predicate_sankey_edges_preserve_qualifier_context() -> None:
         ),
     )
 
-    selected_edges = selected_predicate_sankey_edges(
+    selected_edges = filter_predicate_sankey_edges(
         edges,
-        top_n=None,
         source_filters=("infores:source-a",),
     )
-    qualifier_counts = qualifier_counts_for_edges(selected_edges)
 
     assert len(selected_edges) == 1
     assert selected_edges[0].count == 25
-    assert qualifier_counts == [("qualified_predicate", 8)]
+    assert selected_edges[0].qualifiers == {"qualified_predicate": 8}
 
 
 def test_predicate_sankey_highlights_links_connected_to_selected_node() -> None:

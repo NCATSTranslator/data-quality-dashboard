@@ -72,8 +72,6 @@ from graph_metadata_dashboard.viz.figures import (
     knowledge_source_predicate_sankey,
     node_category_bar,
     predicate_sankey,
-    qualifier_counts_for_edges,
-    selected_predicate_sankey_edges,
     subject_object_category_pair_bar,
 )
 
@@ -1256,36 +1254,23 @@ def register_callbacks(
         )
         if not filtered_counts:
             return False, _empty_sankey_filter_message()
-        qualifier_edges = filter_predicate_sankey_edges(
-            parsed.schema.edges,
-            source_filters=source_filters,
-            predicate_filters=predicate_filters,
-        )
         return (
             False,
-            html.Div(
-                children=[
-                    _qualifier_context_summary(
-                        qualifier_edges,
-                        scope_label="displayed source-predicate flows",
+            dcc.Graph(
+                id="source-predicate-sankey-graph",
+                figure=knowledge_source_predicate_sankey(
+                    filtered_counts,
+                    top_n_sources=_slider_top_n(
+                        top_n_value,
+                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
                     ),
-                    dcc.Graph(
-                        id="source-predicate-sankey-graph",
-                        figure=knowledge_source_predicate_sankey(
-                            filtered_counts,
-                            top_n_sources=_slider_top_n(
-                                top_n_value,
-                                default=SOURCE_PREDICATE_SANKEY_TOP_N,
-                            ),
-                            top_n_predicates=_slider_top_n(
-                                top_n_value,
-                                default=SOURCE_PREDICATE_SANKEY_TOP_N,
-                            ),
-                        ),
-                        className="inline-sankey-graph",
-                        config={"responsive": True},
+                    top_n_predicates=_slider_top_n(
+                        top_n_value,
+                        default=SOURCE_PREDICATE_SANKEY_TOP_N,
                     ),
-                ],
+                ),
+                className="inline-sankey-graph",
+                config={"responsive": True},
             ),
         )
 
@@ -1365,38 +1350,29 @@ def register_callbacks(
         source_filters = _dropdown_values(selected_sources)
         predicate_filters = _dropdown_values(selected_predicates)
         object_filters = _dropdown_values(selected_objects)
-        selected_edges = selected_predicate_sankey_edges(
+        filtered_edges = filter_predicate_sankey_edges(
             parsed.schema.edges,
-            top_n=top_n,
             subject_filter=subject_filter,
             source_filters=source_filters,
             predicate_filters=predicate_filters,
             object_filters=object_filters,
         )
-        if not selected_edges:
+        if not filtered_edges:
             return False, _empty_sankey_filter_message(), False
         return (
             False,
-            html.Div(
-                children=[
-                    _qualifier_context_summary(
-                        selected_edges,
-                        scope_label="displayed subject-predicate-object flows",
-                    ),
-                    dcc.Graph(
-                        id="subject-predicate-object-sankey-graph",
-                        figure=predicate_sankey(
-                            parsed.schema.edges,
-                            top_n=top_n,
-                            subject_filter=subject_filter,
-                            source_filters=source_filters,
-                            predicate_filters=predicate_filters,
-                            object_filters=object_filters,
-                        ),
-                        className="inline-sankey-graph",
-                        config={"responsive": True},
-                    ),
-                ],
+            dcc.Graph(
+                id="subject-predicate-object-sankey-graph",
+                figure=predicate_sankey(
+                    parsed.schema.edges,
+                    top_n=top_n,
+                    subject_filter=subject_filter,
+                    source_filters=source_filters,
+                    predicate_filters=predicate_filters,
+                    object_filters=object_filters,
+                ),
+                className="inline-sankey-graph",
+                config={"responsive": True},
             ),
             False,
         )
@@ -1839,32 +1815,6 @@ def _empty_sankey_filter_message() -> html.Div:
             html.P("Adjust or clear the Sankey filters to show matching relationship flows."),
         ],
     )
-
-
-def _qualifier_context_summary(
-    edges: tuple[EdgeTriple, ...],
-    *,
-    scope_label: str,
-) -> html.Div:
-    qualifier_counts = qualifier_counts_for_edges(edges, top_n=5)
-    edge_count = sum(edge.count for edge in edges)
-    children: list[Any] = [
-        html.P(
-            f"Qualifier context for {edge_count:,} edges from {len(edges):,} {scope_label}: "
-        ),
-    ]
-    if qualifier_counts:
-        children.append(
-            html.Ul(
-                [
-                    html.Li(f"{qualifier}: {count:,}")
-                    for qualifier, count in qualifier_counts
-                ]
-            )
-        )
-    else:
-        children.append(html.P("No qualifier counts are reported for these flows."))
-    return html.Div(className="qualifier-summary", children=children)
 
 
 def _loaded_graphs_summary(graph_states: list[GraphState]) -> html.Div:

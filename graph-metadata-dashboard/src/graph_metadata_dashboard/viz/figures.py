@@ -781,39 +781,6 @@ def filter_predicate_sankey_edges(
     return tuple(filtered_edges)
 
 
-def selected_predicate_sankey_edges(
-    edges: tuple[EdgeTriple, ...],
-    *,
-    top_n: int | None = DEFAULT_TOP_COUNT,
-    subject_filter: str | None = None,
-    object_filters: Collection[str] | None = None,
-    predicate_filters: Collection[str] | None = None,
-    source_filters: Collection[str] | None = None,
-) -> tuple[EdgeTriple, ...]:
-    return _select_sankey_edges(
-        filter_predicate_sankey_edges(
-            edges,
-            subject_filter=subject_filter,
-            object_filters=object_filters,
-            predicate_filters=predicate_filters,
-            source_filters=source_filters,
-        ),
-        top_n=top_n,
-    )
-
-
-def qualifier_counts_for_edges(
-    edges: tuple[EdgeTriple, ...],
-    *,
-    top_n: int = 5,
-) -> list[tuple[str, int]]:
-    totals: defaultdict[str, int] = defaultdict(int)
-    for edge in edges:
-        for qualifier, count in edge.qualifiers.items():
-            totals[qualifier] += count
-    return sorted(totals.items(), key=lambda item: item[1], reverse=True)[:top_n]
-
-
 def _edge_subject_label(edge: EdgeTriple) -> str:
     return ", ".join(edge.subject_category) or OTHER_LABEL
 

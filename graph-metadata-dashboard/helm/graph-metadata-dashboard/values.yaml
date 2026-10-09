@@ -14,7 +14,7 @@ env:
   KGX_STORAGE_BASE_URL: "https://kgx-storage.ci.transltr.io/releases"
   METADATA_CACHE_BACKEND: "diskcache"
   METADATA_CACHE_DIR: "/tmp/graph-metadata-dashboard-cache"
-  METADATA_CACHE_TTL_SECONDS: "3600"
+  METADATA_CACHE_TTL_SECONDS: "10800"
   REQUESTS_TIMEOUT_SECONDS: "20"
   REMOTE_METADATA_ALLOWED_URL_PREFIXES: "https://kgx-storage.ci.transltr.io/releases,https://robokop.renci.org/graphs"
   REMOTE_METADATA_MAX_BYTES: "67108864"
