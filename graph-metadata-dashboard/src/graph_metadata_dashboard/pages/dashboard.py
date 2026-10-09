@@ -379,13 +379,12 @@ def layout() -> html.Div:
                                         children=[
                                             html.H4("Subject to Predicate to Object"),
                                             html.P(
-                                                "A three-column chart showing relationship triples "
-                                                "across all subject categories by default. "
-                                                "Choose a subject category to narrow the view. "
-                                                "Filter by "
-                                                "source, predicate, and "
+                                                "A three-column Sankey chart showing relationship "
+                                                "triples across all subject categories by default. "
+                                                "Choose a subject category to focus the chart on "
+                                                "that category. Filter by source, predicate, and "
                                                 "object category, and use the slider to control "
-                                                "how many highest-count triples are shown.",
+                                                "how many of the highest-count triples are shown.",
                                                 className="status-line",
                                             ),
                                             html.Div(
